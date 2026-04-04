@@ -1,0 +1,51 @@
+* {
+  box-sizing: border-box;
+}
+
+html,
+body,
+#app {
+  margin: 0;
+  height: 100%;
+}
+
+/* 首屏与未加载主题 store 前的回退值（与默认「恋恋」紫粉系一致） */
+:root {
+  --admin-sidebar-bg: #14101f;
+  --admin-sidebar-border: rgba(244, 114, 182, 0.14);
+  --admin-sidebar-text: #d4c4e8;
+  --admin-sidebar-text-muted: rgba(212, 196, 232, 0.5);
+  --admin-sidebar-active-bg: rgba(244, 114, 182, 0.14);
+  --admin-sidebar-active-text: #fce7f3;
+  --admin-accent: #f472b6;
+  --admin-header-bg: rgba(255, 255, 255, 0.78);
+  --admin-header-border: rgba(168, 85, 247, 0.14);
+  --admin-header-text: #1e1b2e;
+  --admin-main-bg: linear-gradient(165deg, #faf6ff 0%, #f3ecfb 42%, #efe8f7 100%);
+  --admin-card-bg: rgba(255, 255, 255, 0.92);
+  --admin-radius-sm: 10px;
+  --admin-radius-md: 14px;
+  --admin-radius-lg: 20px;
+  --admin-shadow-layout: 0 8px 32px rgba(126, 34, 206, 0.1), 0 2px 8px rgba(244, 114, 182, 0.06);
+  --admin-shadow-card: 0 4px 24px rgba(109, 40, 217, 0.08), 0 1px 4px rgba(236, 72, 153, 0.05);
+  --admin-login-bg: linear-gradient(152deg, #14101f 0%, #2d1b4e 52%, #3b0764 100%);
+  --el-color-primary: #c026d3;
+}
+
+body {
+  font-family:
+    'Source Han Sans SC',
+    'Noto Sans SC',
+    'PingFang SC',
+    'Microsoft YaHei',
+    'Helvetica Neue',
+    Helvetica,
+    sans-serif;
+  -webkit-font-smoothing: antialiased;
+  color: var(--admin-header-text);
+}
+
+/* 管理页内卡片统一略柔的圆角（各页可继续用 el-card） */
+.el-card {
+  border-radius: var(--admin-radius-md);
+}
