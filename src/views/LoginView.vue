@@ -1,17 +1,17 @@
 <script setup>
-import { ref, computed } from 'vue'
-import { useRoute, useRouter } from 'vue-router'
-import { storeToRefs } from 'pinia'
-import { useAuthStore } from '@/stores/auth'
-import { useThemeStore } from '@/stores/theme'
-import { resolveMediaUrl } from '@/utils/mediaUrl'
-import { ElMessage } from 'element-plus'
+import {ref, computed} from 'vue'
+import {useRoute, useRouter} from 'vue-router'
+import {storeToRefs} from 'pinia'
+import {useAuthStore} from '@/stores/auth'
+import {useThemeStore} from '@/stores/theme'
+import {resolveMediaUrl} from '@/utils/mediaUrl'
+import {ElMessage} from 'element-plus'
 
 const router = useRouter()
 const route = useRoute()
 const auth = useAuthStore()
 const theme = useThemeStore()
-const { brandTitle, brandSubtitle, logoUrl } = storeToRefs(theme)
+const {brandTitle, brandSubtitle, logoUrl} = storeToRefs(theme)
 
 const loginHeadline = computed(() => brandTitle.value || 'AI恋恋')
 const loginSub = computed(() => brandSubtitle.value || '运营中枢')
@@ -37,7 +37,7 @@ async function onSubmit() {
       const m = redirect.match(/#(\/.*)$/)
       path = m ? m[1] : redirect.startsWith('/') ? redirect : null
     }
-    router.replace(path || { name: 'dashboard' })
+    router.replace(path || {name: 'dashboard'})
   } catch (e) {
     ElMessage.error(e?.response?.data?.msg || e?.message || '登录失败')
   } finally {
@@ -48,12 +48,12 @@ async function onSubmit() {
 
 <template>
   <div class="login-page">
-    <div class="login-bg-blob" aria-hidden="true" />
+    <div class="login-bg-blob" aria-hidden="true"/>
     <el-card class="login-card" shadow="never">
       <template #header>
         <div class="card-header">
           <div v-if="logoSrc" class="login-logo-wrap">
-            <img :src="logoSrc" alt="" class="login-logo" />
+            <img :src="logoSrc" alt="" class="login-logo"/>
           </div>
           <div v-else class="login-icon-fallback">💕</div>
           <div class="card-titles">
@@ -64,15 +64,22 @@ async function onSubmit() {
       </template>
       <el-form label-position="top" @submit.prevent="onSubmit">
         <el-form-item label="账号">
-          <el-input v-model="username" placeholder="管理员账号" clearable autocomplete="username" />
+          <el-input
+              :prefix-icon="'user'"
+              v-model="username"
+              placeholder="管理员账号"
+              clearable
+              autocomplete="username"
+              />
         </el-form-item>
         <el-form-item label="密码">
           <el-input
-            v-model="password"
-            type="password"
-            placeholder="密码"
-            show-password
-            autocomplete="current-password"
+              :prefix-icon="'lock'"
+              v-model="password"
+              type="password"
+              placeholder="密码"
+              show-password
+              autocomplete="current-password"
           />
         </el-form-item>
         <el-button type="primary" class="submit-btn" :loading="loading" native-type="submit" style="width: 100%">
@@ -80,10 +87,10 @@ async function onSubmit() {
         </el-button>
       </el-form>
       <el-alert
-        class="hint"
-        type="info"
-        :closable="false"
-        title="默认账号 admin / admin123（首次启动由后端初始化，生产请立即改密）。"
+          class="hint"
+          type="info"
+          :closable="false"
+          title="默认账号 admin / admin123（首次启动由后端初始化，生产请立即改密）。"
       />
     </el-card>
   </div>
@@ -106,7 +113,7 @@ async function onSubmit() {
   width: 480px;
   height: 480px;
   border-radius: 50%;
-  background: radial-gradient(circle, rgba(236, 72, 153, 0.35) 0%, transparent 70%);
+  background: radial-gradient(circle, rgb(203, 194, 248) 0%, transparent 70%);
   top: -120px;
   right: -80px;
   pointer-events: none;
@@ -118,9 +125,9 @@ async function onSubmit() {
   width: 100%;
   max-width: 420px;
   border-radius: var(--admin-radius-lg);
-  background: rgba(255, 255, 255, 0.92);
+  background: rgba(255, 255, 255, 0.95);
   border: 1px solid rgba(255, 255, 255, 0.55);
-  box-shadow: var(--admin-shadow-card), 0 0 0 1px rgba(168, 85, 247, 0.06);
+  box-shadow: var(--admin-shadow-card), 0 0 10px 1px rgb(210, 194, 255);
   backdrop-filter: blur(16px);
   -webkit-backdrop-filter: blur(16px);
 }
@@ -140,6 +147,9 @@ async function onSubmit() {
 .login-logo-wrap {
   width: 56px;
   height: 56px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
   border-radius: var(--admin-radius-md);
   overflow: hidden;
   background: var(--el-fill-color-lighter);
@@ -147,8 +157,8 @@ async function onSubmit() {
 }
 
 .login-logo {
-  width: 100%;
-  height: 100%;
+  width: 150%;
+  height: 150%;
   object-fit: contain;
 }
 
@@ -171,7 +181,7 @@ async function onSubmit() {
   font-size: 20px;
   font-weight: 700;
   letter-spacing: 0.06em;
-  background: linear-gradient(100deg, #86198f, #c026d3, #db2777);
+  background: var(--admin-login-bg);
   -webkit-background-clip: text;
   background-clip: text;
   color: transparent;

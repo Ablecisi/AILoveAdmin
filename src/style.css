@@ -28,8 +28,8 @@ body,
   --admin-radius-lg: 20px;
   --admin-shadow-layout: 0 8px 32px rgba(126, 34, 206, 0.1), 0 2px 8px rgba(244, 114, 182, 0.06);
   --admin-shadow-card: 0 4px 24px rgba(109, 40, 217, 0.08), 0 1px 4px rgba(236, 72, 153, 0.05);
-  --admin-login-bg: linear-gradient(152deg, #14101f 0%, #2d1b4e 52%, #3b0764 100%);
-  --el-color-primary: #c026d3;
+  --admin-login-bg: linear-gradient(150deg, #e8e1ff 0%, #af8eff 50%, #d095ff 100%);
+  --el-color-primary: #f7aeff;
 }
 
 body {

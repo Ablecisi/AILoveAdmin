@@ -139,6 +139,9 @@ onMounted(() => {
   flex-shrink: 0;
   width: 44px;
   height: 44px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
   border-radius: var(--admin-radius-md);
   overflow: hidden;
   background: rgba(255, 255, 255, 0.06);
@@ -146,8 +149,8 @@ onMounted(() => {
 }
 
 .brand-logo {
-  width: 100%;
-  height: 100%;
+  width: 150%;
+  height: 150%;
   object-fit: contain;
 }
 
