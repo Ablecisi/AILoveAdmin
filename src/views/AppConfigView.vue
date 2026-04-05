@@ -20,6 +20,14 @@ function inferConfigEditorKind(valueStr) {
       /* ignore */
     }
   }
+  if (s.startsWith('{')) {
+    try {
+      const j = JSON.parse(s)
+      if (j !== null && typeof j === 'object' && !Array.isArray(j)) return 'jsonObject'
+    } catch {
+      /* ignore */
+    }
+  }
   return 'text'
 }
 
@@ -71,6 +79,14 @@ async function load() {
 }
 
 async function saveRow(row) {
+  if (row.kind === 'jsonObject') {
+    try {
+      JSON.parse(row.value || '{}')
+    } catch {
+      ElMessage.error('JSON 对象格式无效，请检查括号与引号')
+      return
+    }
+  }
   savingKey.value = row.key
   try {
     const { data } = await putAppConfigValue(row.key, row.value)
@@ -103,7 +119,7 @@ onMounted(load)
         type="info"
         :closable="false"
         class="mb"
-        title="修改后移动端通过 GET /api/app/bootstrap 拉取。布尔值与整数使用开关/数字框；JSON 数组用标签编辑，保存仍为 JSON 字符串。"
+        title="修改后移动端通过 GET /api/app/bootstrap 拉取。布尔/整数用开关与数字框；JSON 数组用标签编辑；JSON 对象用大文本框编辑。角色对话语气请在「数据维护 → 类型」中按类型配置。"
       />
       <el-table v-loading="loading" :data="rows" stripe style="width: 100%">
         <el-table-column prop="key" label="键" width="260" show-overflow-tooltip />
@@ -127,6 +143,14 @@ onMounted(load)
               :model-value="row.tags"
               placeholder="配置项，回车添加"
               @update:model-value="(v) => onTagsUpdate(row, v)"
+            />
+            <el-input
+              v-else-if="row.kind === 'jsonObject'"
+              v-model="row.value"
+              type="textarea"
+              :rows="14"
+              class="mono-json"
+              placeholder='例如 {"_default":"…","companion":"…","情感陪伴":"…"}'
             />
             <el-input v-else v-model="row.value" type="textarea" :rows="2" />
           </template>
@@ -161,5 +185,12 @@ onMounted(load)
 
 .mb {
   margin-bottom: 12px;
+}
+
+.mono-json :deep(textarea) {
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, 'Liberation Mono', 'Courier New',
+    monospace;
+  font-size: 12px;
+  line-height: 1.45;
 }
 </style>

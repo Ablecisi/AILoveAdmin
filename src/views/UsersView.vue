@@ -9,6 +9,7 @@ import {
 } from '@/api/adminUsers'
 import AdminImageField from '@/components/AdminImageField.vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
+import { enabledLabel, enabledTagType } from '@/utils/adminLabels'
 
 const loading = ref(false)
 const tableData = ref([])
@@ -29,6 +30,7 @@ const form = reactive({
   avatarUrl: '',
   followingCount: 0,
   followersCount: 0,
+  status: 1,
 })
 
 function openCreate() {
@@ -42,6 +44,7 @@ function openCreate() {
     avatarUrl: '',
     followingCount: 0,
     followersCount: 0,
+    status: 1,
   })
   dialogVisible.value = true
 }
@@ -61,6 +64,7 @@ async function openEdit(row) {
         avatarUrl: u.avatarUrl ?? '',
         followingCount: u.followingCount ?? 0,
         followersCount: u.followersCount ?? 0,
+        status: u.status ?? 1,
       })
       dialogVisible.value = true
     } else {
@@ -127,6 +131,7 @@ async function submit() {
       avatarUrl: form.avatarUrl || undefined,
       followingCount: form.followingCount,
       followersCount: form.followersCount,
+      status: form.status,
     }
     let data
     if (isEdit.value) {
@@ -146,6 +151,18 @@ async function submit() {
     ElMessage.error(e?.response?.data?.msg || e?.message || '请求失败')
   } finally {
     saving.value = false
+  }
+}
+
+async function onToggleUserStatus(row, val) {
+  try {
+    const { data } = await updateAdminUser(row.id, { status: val ? 1 : 0 })
+    if (data?.code === 1) {
+      ElMessage.success('已更新')
+      load()
+    } else ElMessage.error(data?.msg || '失败')
+  } catch (e) {
+    ElMessage.error(e?.response?.data?.msg || e?.message || '失败')
   }
 }
 
@@ -204,6 +221,14 @@ onMounted(load)
       <el-table-column prop="description" label="简介" min-width="160" show-overflow-tooltip />
       <el-table-column prop="followingCount" label="关注数" width="100" />
       <el-table-column prop="followersCount" label="粉丝数" width="100" />
+      <el-table-column label="账号状态" width="120">
+        <template #default="{ row }">
+          <el-switch :model-value="row.status === 1" @change="(v) => onToggleUserStatus(row, v)" />
+          <el-tag class="ml6" :type="enabledTagType(row.status ?? 1)" size="small">{{
+            enabledLabel(row.status ?? 1)
+          }}</el-tag>
+        </template>
+      </el-table-column>
       <el-table-column prop="createTime" label="创建时间" width="168" />
       <el-table-column prop="updateTime" label="更新时间" width="168" />
       <el-table-column label="操作" width="160" fixed="right">
@@ -249,6 +274,9 @@ onMounted(load)
         <el-form-item label="粉丝数">
           <el-input-number v-model="form.followersCount" :min="0" />
         </el-form-item>
+        <el-form-item label="启用">
+          <el-switch v-model="form.status" :active-value="1" :inactive-value="0" />
+        </el-form-item>
       </el-form>
       <template #footer>
         <el-button @click="dialogVisible = false">取消</el-button>
@@ -282,5 +310,10 @@ onMounted(load)
 
 .mt8 {
   margin-top: 8px;
+}
+
+.ml6 {
+  margin-left: 6px;
+  vertical-align: middle;
 }
 </style>

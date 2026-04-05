@@ -40,6 +40,24 @@ const routes = [
         meta: { title: '文章运营' },
       },
       {
+        path: 'posts',
+        name: 'posts',
+        component: () => import('@/views/PostsView.vue'),
+        meta: { title: '帖子管理' },
+      },
+      {
+        path: 'interactions',
+        name: 'interactions',
+        component: () => import('@/views/InteractionsView.vue'),
+        meta: { title: '互动关系' },
+      },
+      {
+        path: 'emotion-logs',
+        name: 'emotion-logs',
+        component: () => import('@/views/EmotionLogsView.vue'),
+        meta: { title: '情绪日志' },
+      },
+      {
         path: 'comments',
         name: 'comments',
         component: () => import('@/views/CommentsView.vue'),

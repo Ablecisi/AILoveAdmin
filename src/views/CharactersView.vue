@@ -17,6 +17,7 @@ import { parseTagLikeString, serializeTagsAsJson } from '@/utils/adminTagField'
 import AdminTagEditor from '@/components/AdminTagEditor.vue'
 import AdminImageField from '@/components/AdminImageField.vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
+import { genderLabel, onlineLabel, onlineTagType, enabledLabel, enabledTagType } from '@/utils/adminLabels'
 
 const loading = ref(false)
 const tableData = ref([])
@@ -25,7 +26,8 @@ const page = ref(1)
 const size = ref(10)
 const keyword = ref('')
 const filterTypeId = ref(null)
-const status = ref('')
+const filterOnline = ref(null)
+const filterEnabled = ref(null)
 
 const typeOptions = ref([])
 const userOptions = ref([])
@@ -126,8 +128,8 @@ async function load() {
       keyword: keyword.value.trim() || undefined,
     }
     if (filterTypeId.value != null) params.typeId = filterTypeId.value
-    const st = status.value === '' ? undefined : Number(status.value)
-    if (st != null && !Number.isNaN(st)) params.status = st
+    if (filterOnline.value != null && filterOnline.value !== '') params.online = filterOnline.value
+    if (filterEnabled.value != null && filterEnabled.value !== '') params.status = filterEnabled.value
 
     const { data } = await fetchAiCharacters(params)
     if (data?.code === 1 && data.data) {
@@ -192,6 +194,28 @@ async function submit() {
   }
 }
 
+async function patchCharacterField(id, partial) {
+  try {
+    const { data } = await updateAiCharacter(id, partial)
+    if (data?.code === 1) {
+      await load()
+      return true
+    }
+    ElMessage.error(data?.msg || '更新失败')
+  } catch (e) {
+    ElMessage.error(e?.response?.data?.msg || e?.message || '请求失败')
+  }
+  return false
+}
+
+async function onToggleStatus(row, val) {
+  await patchCharacterField(row.id, { status: val ? 1 : 0 })
+}
+
+async function onToggleOnline(row, val) {
+  await patchCharacterField(row.id, { online: val ? 1 : 0 })
+}
+
 async function onDelete(row) {
   try {
     await ElMessageBox.confirm(`确定删除角色 #${row.id}？`, '确认', { type: 'warning' })
@@ -240,9 +264,25 @@ onMounted(() => {
           >
             <el-option v-for="t in typeOptions" :key="t.id" :label="t.name" :value="t.id" />
           </el-select>
-          <el-select v-model="status" placeholder="状态" clearable style="width: 100px; margin-right: 8px">
+          <el-select
+            v-model="filterOnline"
+            placeholder="在线"
+            clearable
+            style="width: 110px; margin-right: 8px"
+            @change="onSearch"
+          >
+            <el-option label="在线" :value="1" />
+            <el-option label="离线" :value="0" />
+          </el-select>
+          <el-select
+            v-model="filterEnabled"
+            placeholder="启用"
+            clearable
+            style="width: 110px; margin-right: 8px"
+            @change="onSearch"
+          >
             <el-option label="启用" :value="1" />
-            <el-option label="下线" :value="0" />
+            <el-option label="停用" :value="0" />
           </el-select>
           <el-button type="primary" @click="onSearch">搜索</el-button>
           <el-button type="success" @click="openCreate">新建</el-button>
@@ -256,27 +296,38 @@ onMounted(() => {
         <template #default="{ row }">{{ userLabel(row.userId) }}</template>
       </el-table-column>
       <el-table-column prop="name" label="名称" min-width="100" show-overflow-tooltip />
-      <el-table-column prop="typeId" label="类型ID" width="80" />
-      <el-table-column prop="typeName" label="类型名称" width="100" show-overflow-tooltip />
+      <el-table-column label="类型" width="120" show-overflow-tooltip>
+        <template #default="{ row }">{{ row.typeName?.trim() || '—' }}</template>
+      </el-table-column>
       <el-table-column label="头像" width="72" align="center">
         <template #default="{ row }">
           <AdminImageField :model-value="row.imageUrl" :editable="false" :size="40" />
         </template>
       </el-table-column>
-      <el-table-column prop="gender" label="性别" width="72" />
+      <el-table-column label="性别" width="72">
+        <template #default="{ row }">{{ genderLabel(row.gender) }}</template>
+      </el-table-column>
       <el-table-column prop="age" label="年龄" width="64" />
       <el-table-column prop="traits" label="特点" min-width="100" show-overflow-tooltip />
       <el-table-column prop="personaDesc" label="性格描述" min-width="120" show-overflow-tooltip />
       <el-table-column prop="interests" label="兴趣" min-width="100" show-overflow-tooltip />
       <el-table-column prop="backstory" label="背景故事" min-width="120" show-overflow-tooltip />
-      <el-table-column prop="online" label="在线" width="80">
+      <el-table-column label="在线" width="100">
         <template #default="{ row }">
-          <el-tag :type="row.online === 1 ? 'success' : 'info'" size="small">{{ row.online === 1 ? '1' : '0' }}</el-tag>
+          <el-switch
+            :model-value="row.online === 1"
+            @change="(v) => onToggleOnline(row, v)"
+          />
+          <el-tag class="ml6" :type="onlineTagType(row.online)" size="small">{{ onlineLabel(row.online) }}</el-tag>
         </template>
       </el-table-column>
-      <el-table-column prop="status" label="状态" width="80">
+      <el-table-column label="启用" width="100">
         <template #default="{ row }">
-          <el-tag :type="row.status === 1 ? 'success' : 'danger'" size="small">{{ row.status === 1 ? '1' : '0' }}</el-tag>
+          <el-switch
+            :model-value="row.status === 1"
+            @change="(v) => onToggleStatus(row, v)"
+          />
+          <el-tag class="ml6" :type="enabledTagType(row.status)" size="small">{{ enabledLabel(row.status) }}</el-tag>
         </template>
       </el-table-column>
       <el-table-column prop="createTime" label="创建时间" width="168" />
@@ -394,5 +445,10 @@ onMounted(() => {
 
 .mt8 {
   margin-top: 8px;
+}
+
+.ml6 {
+  margin-left: 6px;
+  vertical-align: middle;
 }
 </style>

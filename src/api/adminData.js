@@ -3,8 +3,10 @@ import http from './http'
 export const types = {
   list: () => http.get('/admin/api/v1/types'),
   get: (id) => http.get(`/admin/api/v1/types/${id}`),
-  create: (name) => http.post('/admin/api/v1/types', { name }),
-  update: (id, name) => http.put(`/admin/api/v1/types/${id}`, { name }),
+  /** @param {{ name: string, promptStyle?: string }} body */
+  create: (body) => http.post('/admin/api/v1/types', body),
+  /** @param {{ name: string, promptStyle?: string }} body */
+  update: (id, body) => http.put(`/admin/api/v1/types/${id}`, body),
   del: (id) => http.delete(`/admin/api/v1/types/${id}`),
 }
 

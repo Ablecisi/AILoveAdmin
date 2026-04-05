@@ -1,6 +1,8 @@
 <script setup>
 import { ref, onMounted, watch } from 'vue'
 import { fetchAdminConversations, fetchAdminMessages } from '@/api/adminDialogs'
+import { loadUserOptions, resolveUserNickname } from '@/api/adminLookups'
+import { messageTypeLabel } from '@/utils/adminLabels'
 import { ElMessage } from 'element-plus'
 
 const tab = ref('conv')
@@ -12,6 +14,16 @@ const convPage = ref(1)
 const convSize = ref(10)
 const convKeyword = ref('')
 const convUserId = ref('')
+const userOptions = ref([])
+
+async function ensureUsers() {
+  if (userOptions.value.length) return
+  try {
+    userOptions.value = await loadUserOptions()
+  } catch {
+    /* ignore */
+  }
+}
 
 const msgLoading = ref(false)
 const msgData = ref([])
@@ -22,6 +34,7 @@ const msgKeyword = ref('')
 const msgConversationId = ref('')
 
 async function loadConversations() {
+  await ensureUsers()
   convLoading.value = true
   try {
     const params = {
@@ -47,6 +60,7 @@ async function loadConversations() {
 }
 
 async function loadMessages() {
+  await ensureUsers()
   msgLoading.value = true
   try {
     const params = {
@@ -128,9 +142,12 @@ onMounted(() => {
         </div>
         <el-table v-loading="convLoading" :data="convData" stripe class="mt" style="width: 100%">
           <el-table-column prop="id" label="会话ID" width="88" />
-          <el-table-column prop="userId" label="用户ID" width="88" />
-          <el-table-column prop="characterId" label="角色ID" width="96" />
-          <el-table-column prop="characterName" label="角色名称" width="120" show-overflow-tooltip />
+          <el-table-column label="用户" width="120" show-overflow-tooltip>
+            <template #default="{ row }">{{
+              row.userDisplayName || resolveUserNickname(row.userId, userOptions)
+            }}</template>
+          </el-table-column>
+          <el-table-column prop="characterName" label="AI角色" width="140" show-overflow-tooltip />
           <el-table-column prop="title" label="标题" min-width="120" show-overflow-tooltip />
           <el-table-column prop="lastMessage" label="最后消息" min-width="160" show-overflow-tooltip />
           <el-table-column prop="lastMsgAt" label="最后消息时间" width="168" />
@@ -170,17 +187,33 @@ onMounted(() => {
         </div>
         <el-table v-loading="msgLoading" :data="msgData" stripe class="mt" style="width: 100%">
           <el-table-column prop="id" label="消息ID" width="88" />
-          <el-table-column prop="conversationId" label="会话ID" width="120" />
-          <el-table-column prop="userId" label="用户ID" width="88" />
-          <el-table-column prop="type" label="类型" width="80">
+          <el-table-column label="会话" min-width="140" show-overflow-tooltip>
+            <template #default="{ row }">{{
+              row.conversationTitle ? `${row.conversationTitle}` : `会话 #${row.conversationId}`
+            }}</template>
+          </el-table-column>
+          <el-table-column label="用户" width="120" show-overflow-tooltip>
+            <template #default="{ row }">{{
+              row.userDisplayName || resolveUserNickname(row.userId, userOptions)
+            }}</template>
+          </el-table-column>
+          <el-table-column label="类型" width="88">
             <template #default="{ row }">
-              <span>{{ row.type }}</span>
+              <el-tag size="small" :type="row.type === 1 ? 'success' : 'primary'">{{
+                messageTypeLabel(row.type)
+              }}</el-tag>
             </template>
           </el-table-column>
           <el-table-column prop="content" label="内容" min-width="220" show-overflow-tooltip />
           <el-table-column prop="emotion" label="情绪" width="96" />
           <el-table-column prop="confidence" label="置信度" width="100" />
-          <el-table-column prop="isRead" label="已读" width="80" />
+          <el-table-column label="已读" width="88">
+            <template #default="{ row }">
+              <el-tag :type="row.isRead ? 'success' : 'info'" size="small">{{
+                row.isRead ? '已读' : '未读'
+              }}</el-tag>
+            </template>
+          </el-table-column>
           <el-table-column prop="createTime" label="创建时间" width="168" />
           <el-table-column prop="updateTime" label="更新时间" width="168" />
         </el-table>

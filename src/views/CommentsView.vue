@@ -15,6 +15,7 @@ import {
   resolveUserNickname,
 } from '@/api/adminLookups'
 import {ElMessage, ElMessageBox} from 'element-plus'
+import {deletedLabel} from '@/utils/adminLabels'
 
 const loading = ref(false)
 const tableData = ref([])
@@ -57,6 +58,13 @@ function postColLabel(id) {
 
 function userColLabel(uid) {
   return resolveUserNickname(uid, userOptions.value)
+}
+
+function commentSnippetById(id) {
+  if (id == null) return '—'
+  const c = tableData.value.find((x) => x.id === id)
+  if (!c?.content) return `评论 #${id}`
+  return (c.content || '').replace(/\s+/g, ' ').trim().slice(0, 36)
 }
 
 async function ensureLookups() {
@@ -326,19 +334,28 @@ onMounted(() => {
     <el-table v-loading="loading" :data="tableData" stripe style="width: 100%">
       <el-table-column prop="id" label="ID" width="72" fixed="left" />
       <el-table-column prop="content" label="内容" min-width="200" show-overflow-tooltip />
-      <el-table-column prop="postId" label="帖子ID" width="88" />
-      <el-table-column prop="articleId" label="文章ID" width="88" />
-      <el-table-column prop="userId" label="用户ID" width="88" />
-      <el-table-column prop="userName" label="用户昵称" width="100" show-overflow-tooltip />
+      <el-table-column label="帖子" min-width="160" show-overflow-tooltip>
+        <template #default="{ row }">{{ postColLabel(row.postId) }}</template>
+      </el-table-column>
+      <el-table-column label="文章" min-width="160" show-overflow-tooltip>
+        <template #default="{ row }">{{ articleColLabel(row.articleId) }}</template>
+      </el-table-column>
+      <el-table-column label="用户" width="120" show-overflow-tooltip>
+        <template #default="{ row }">{{ userColLabel(row.userId) }}</template>
+      </el-table-column>
       <el-table-column prop="likeCount" label="点赞数" width="88" />
       <el-table-column prop="replyCount" label="回复数" width="96" />
-      <el-table-column prop="parentId" label="父评论ID" width="88" />
-      <el-table-column prop="rootId" label="根评论ID" width="88" />
+      <el-table-column label="父评论" min-width="140" show-overflow-tooltip>
+        <template #default="{ row }">{{ commentSnippetById(row.parentId) }}</template>
+      </el-table-column>
+      <el-table-column label="根评论" min-width="140" show-overflow-tooltip>
+        <template #default="{ row }">{{ commentSnippetById(row.rootId) }}</template>
+      </el-table-column>
       <el-table-column prop="path" label="路径" min-width="120" show-overflow-tooltip />
       <el-table-column prop="depth" label="层级" width="72" />
-      <el-table-column prop="deleted" label="已删除" width="96">
+      <el-table-column label="状态" width="96">
         <template #default="{ row }">
-          <span>{{ row.deleted ? 1 : 0 }}</span>
+          <el-tag :type="row.deleted ? 'danger' : 'success'" size="small">{{ deletedLabel(row.deleted) }}</el-tag>
         </template>
       </el-table-column>
       <el-table-column prop="createTime" label="创建时间" width="168" />
