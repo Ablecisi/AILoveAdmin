@@ -3,6 +3,7 @@ import { ref, reactive, computed, watch } from 'vue'
 import { storeToRefs } from 'pinia'
 import { useThemeStore } from '@/stores/theme'
 import { ADMIN_MENU_DEFS } from '@/config/adminMenu'
+import { DASHBOARD_CHART_PRESET_META, applyPresetToCustom } from '@/config/dashboardChartTheme'
 import { resolveMediaUrl } from '@/utils/mediaUrl'
 import { ElMessage } from 'element-plus'
 
@@ -113,7 +114,53 @@ function onMenuTitleBlur(name) {
 function resetAll() {
   theme.resetToDefaults()
   Object.keys(titleDraft).forEach((k) => delete titleDraft[k])
-  ElMessage.success('已恢复默认主题')
+  ElMessage.success('已恢复全部默认（外观、菜单、驾驶舱图表等；若开启服务器同步将一并写入）')
+}
+
+function resetDashboardChartsOnly() {
+  theme.resetDashboardChartsToDefaults()
+  ElMessage.success('驾驶舱图表已恢复默认（跟随外观主题；若开启同步将写入服务器）')
+}
+
+function onDashPersist() {
+  theme.persist()
+  theme.applyDocumentVars()
+}
+
+function selectDashPreset(id) {
+  theme.dashboardCharts.preset = id
+  onDashPersist()
+}
+
+function applyPresetIntoCustom() {
+  applyPresetToCustom(theme, theme.dashboardCharts.preset)
+  theme.dashboardCharts.mode = 'custom'
+  onDashPersist()
+  ElMessage.success('已复制到自定义，可逐项微调')
+}
+
+function patchPaletteSlot(i, v) {
+  const pal = [...(theme.dashboardCharts.custom.palette || [])]
+  pal[i] = v || pal[i]
+  theme.dashboardCharts.custom.palette = pal
+  onDashPersist()
+}
+
+async function pullThemeRemote() {
+  await theme.hydrateThemeFromServer()
+  ElMessage.success('已从服务器合并主题（含驾驶舱配色）')
+}
+
+async function pushThemeRemote() {
+  await theme.pushThemeToServer()
+  ElMessage.success('已写入服务器 app_config')
+}
+
+function onSyncServerChange() {
+  theme.persist()
+  if (theme.syncThemeToServer) {
+    theme.pushThemeToServer()
+  }
 }
 
 const colorPickerFields = [
@@ -148,9 +195,14 @@ watch(
         <div class="head">
           <div>
             <h2 class="h2">外观与菜单</h2>
-            <p class="sub">自定义品牌、配色、圆角阴影与侧边栏顺序；设置保存在本机浏览器。</p>
+            <p class="sub">
+              自定义品牌、配色、圆角与菜单；默认写入本机浏览器，并可同步到数据库
+              <code>app_config.admin.ui.theme</code>，换服务器登录后自动拉取。
+            </p>
           </div>
-          <el-button type="danger" plain @click="resetAll">恢复默认</el-button>
+          <el-tooltip content="重置品牌、配色、圆角、菜单与驾驶舱图表；开启同步时会更新服务器 admin.ui.theme" placement="bottom">
+            <el-button type="danger" plain @click="resetAll">恢复全部默认</el-button>
+          </el-tooltip>
         </div>
       </template>
 
@@ -232,6 +284,173 @@ watch(
                 <el-radio-button value="romantic">恋恋（推荐）</el-radio-button>
               </el-radio-group>
             </el-form-item>
+          </el-form>
+        </el-tab-pane>
+
+        <el-tab-pane label="驾驶舱图表">
+          <p class="hint dash-intro">
+            驾驶舱 ECharts 配色可与全局面板主题<strong>独立</strong>：跟随外观主色、选用 5 套预制，或在「自定义」中为折线 / 条形 / 饼序列色 / 雷达 / 关系图等逐项指定颜色。
+          </p>
+          <div class="dash-toolbar">
+            <el-button plain type="warning" @click="resetDashboardChartsOnly">仅恢复驾驶舱图表默认</el-button>
+            <span class="hint-inline">不影响侧栏与品牌；与顶部「恢复全部默认」不同。</span>
+          </div>
+          <el-form label-width="168px" class="form-block form-block--wide" @submit.prevent>
+            <el-form-item label="同步主题到服务器">
+              <div class="sync-row">
+                <el-switch v-model="theme.syncThemeToServer" @change="onSyncServerChange" />
+                <span class="hint-inline">开启后任意主题变更会延迟写入 <code>admin.ui.theme</code>（与 localStorage 双写）</span>
+              </div>
+            </el-form-item>
+            <el-form-item label="远程操作">
+              <el-button @click="pullThemeRemote">从服务器拉取</el-button>
+              <el-button type="primary" plain @click="pushThemeRemote">推送到服务器</el-button>
+            </el-form-item>
+            <el-form-item label="图表配色模式">
+              <el-radio-group v-model="theme.dashboardCharts.mode" @change="onDashPersist">
+                <el-radio-button value="follow">跟随外观主题</el-radio-button>
+                <el-radio-button value="preset">预制方案</el-radio-button>
+                <el-radio-button value="custom">自定义</el-radio-button>
+              </el-radio-group>
+            </el-form-item>
+            <el-form-item v-if="theme.dashboardCharts.mode === 'preset'" label="预制方案">
+              <div class="preset-grid">
+                <button
+                  v-for="p in DASHBOARD_CHART_PRESET_META"
+                  :key="p.id"
+                  type="button"
+                  class="preset-tile"
+                  :class="{ 'preset-tile--on': theme.dashboardCharts.preset === p.id }"
+                  @click="selectDashPreset(p.id)"
+                >
+                  <span class="preset-name">{{ p.name }}</span>
+                  <span class="preset-desc">{{ p.desc }}</span>
+                </button>
+              </div>
+              <el-button class="mt8" size="small" @click="applyPresetIntoCustom">将当前预制复制到自定义并切换</el-button>
+            </el-form-item>
+            <template v-if="theme.dashboardCharts.mode === 'custom'">
+              <el-collapse class="dash-collapse">
+                <el-collapse-item title="折线图（DAU）" name="line">
+                  <div class="mini-grid">
+                    <div class="cp-row">
+                      <span>主线</span>
+                      <el-color-picker
+                        :model-value="theme.dashboardCharts.custom.line.series"
+                        @change="(v) => { theme.dashboardCharts.custom.line.series = v ?? theme.dashboardCharts.custom.line.series; onDashPersist() }"
+                      />
+                    </div>
+                    <div class="cp-row">
+                      <span>面积上沿</span>
+                      <el-color-picker
+                        :model-value="theme.dashboardCharts.custom.line.areaTop"
+                        @change="(v) => { theme.dashboardCharts.custom.line.areaTop = v ?? theme.dashboardCharts.custom.line.areaTop; onDashPersist() }"
+                      />
+                    </div>
+                    <div class="cp-row">
+                      <span>面积下沿</span>
+                      <el-color-picker
+                        :model-value="theme.dashboardCharts.custom.line.areaBottom"
+                        @change="(v) => { theme.dashboardCharts.custom.line.areaBottom = v ?? theme.dashboardCharts.custom.line.areaBottom; onDashPersist() }"
+                      />
+                    </div>
+                    <div class="cp-row">
+                      <span>坐标轴</span>
+                      <el-color-picker
+                        :model-value="theme.dashboardCharts.custom.line.axis"
+                        @change="(v) => { theme.dashboardCharts.custom.line.axis = v ?? theme.dashboardCharts.custom.line.axis; onDashPersist() }"
+                      />
+                    </div>
+                  </div>
+                </el-collapse-item>
+                <el-collapse-item title="横向条形图" name="bar">
+                  <div class="mini-grid">
+                    <div class="cp-row">
+                      <span>渐变起点</span>
+                      <el-color-picker
+                        :model-value="theme.dashboardCharts.custom.bar.gradStart"
+                        @change="(v) => { theme.dashboardCharts.custom.bar.gradStart = v ?? theme.dashboardCharts.custom.bar.gradStart; onDashPersist() }"
+                      />
+                    </div>
+                    <div class="cp-row">
+                      <span>渐变终点</span>
+                      <el-color-picker
+                        :model-value="theme.dashboardCharts.custom.bar.gradEnd"
+                        @change="(v) => { theme.dashboardCharts.custom.bar.gradEnd = v ?? theme.dashboardCharts.custom.bar.gradEnd; onDashPersist() }"
+                      />
+                    </div>
+                    <div class="cp-row">
+                      <span>网格线基准</span>
+                      <el-color-picker
+                        :model-value="theme.dashboardCharts.custom.splitLine"
+                        @change="(v) => { theme.dashboardCharts.custom.splitLine = v ?? theme.dashboardCharts.custom.splitLine; onDashPersist() }"
+                      />
+                    </div>
+                  </div>
+                </el-collapse-item>
+                <el-collapse-item title="饼图 / 漏斗 序列色（8 色）" name="pie">
+                  <div class="palette-grid">
+                    <div v-for="i in 8" :key="i - 1" class="cp-row">
+                      <span>色 {{ i }}</span>
+                      <el-color-picker
+                        :model-value="theme.dashboardCharts.custom.palette[i - 1]"
+                        @change="(v) => patchPaletteSlot(i - 1, v)"
+                      />
+                    </div>
+                  </div>
+                </el-collapse-item>
+                <el-collapse-item title="雷达图" name="radar">
+                  <div class="mini-grid">
+                    <div class="cp-row">
+                      <span>折线</span>
+                      <el-color-picker
+                        :model-value="theme.dashboardCharts.custom.radar.line"
+                        @change="(v) => { theme.dashboardCharts.custom.radar.line = v ?? theme.dashboardCharts.custom.radar.line; onDashPersist() }"
+                      />
+                    </div>
+                    <div class="cp-row">
+                      <span>数据点</span>
+                      <el-color-picker
+                        :model-value="theme.dashboardCharts.custom.radar.item"
+                        @change="(v) => { theme.dashboardCharts.custom.radar.item = v ?? theme.dashboardCharts.custom.radar.item; onDashPersist() }"
+                      />
+                    </div>
+                    <div class="cp-row">
+                      <span>辐射网格</span>
+                      <el-color-picker
+                        :model-value="theme.dashboardCharts.custom.radar.splitLine"
+                        @change="(v) => { theme.dashboardCharts.custom.radar.splitLine = v ?? theme.dashboardCharts.custom.radar.splitLine; onDashPersist() }"
+                      />
+                    </div>
+                  </div>
+                </el-collapse-item>
+                <el-collapse-item title="关系图与文案" name="graph">
+                  <div class="mini-grid">
+                    <div class="cp-row">
+                      <span>图标签</span>
+                      <el-color-picker
+                        :model-value="theme.dashboardCharts.custom.graphLabel"
+                        @change="(v) => { theme.dashboardCharts.custom.graphLabel = v ?? theme.dashboardCharts.custom.graphLabel; onDashPersist() }"
+                      />
+                    </div>
+                    <div class="cp-row">
+                      <span>空状态提示</span>
+                      <el-color-picker
+                        :model-value="theme.dashboardCharts.custom.graphEmpty"
+                        @change="(v) => { theme.dashboardCharts.custom.graphEmpty = v ?? theme.dashboardCharts.custom.graphEmpty; onDashPersist() }"
+                      />
+                    </div>
+                    <div class="cp-row">
+                      <span>全局说明文字</span>
+                      <el-color-picker
+                        :model-value="theme.dashboardCharts.custom.text"
+                        @change="(v) => { theme.dashboardCharts.custom.text = v ?? theme.dashboardCharts.custom.text; onDashPersist() }"
+                      />
+                    </div>
+                  </div>
+                </el-collapse-item>
+              </el-collapse>
+            </template>
           </el-form>
         </el-tab-pane>
 
@@ -392,5 +611,114 @@ watch(
 .menu-table {
   margin-top: 8px;
   border-radius: var(--admin-radius-md);
+}
+
+.form-block--wide {
+  max-width: 720px;
+}
+
+.dash-intro {
+  max-width: 720px;
+  margin-bottom: 16px;
+}
+
+.dash-toolbar {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+  margin-bottom: 18px;
+  max-width: 720px;
+}
+
+.sync-row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+
+.hint-inline {
+  font-size: 12px;
+  color: var(--el-text-color-secondary);
+  line-height: 1.45;
+}
+
+.hint-inline code {
+  font-size: 11px;
+}
+
+.preset-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
+  gap: 10px;
+}
+
+.preset-tile {
+  text-align: left;
+  padding: 12px 14px;
+  border-radius: var(--admin-radius-md);
+  border: 1px solid var(--el-border-color);
+  background: var(--el-fill-color-blank);
+  cursor: pointer;
+  transition: border-color 0.15s ease, box-shadow 0.15s ease;
+}
+
+.preset-tile:hover {
+  border-color: var(--el-color-primary-light-5);
+}
+
+.preset-tile--on {
+  border-color: var(--el-color-primary);
+  box-shadow: 0 0 0 1px var(--el-color-primary-light-7);
+}
+
+.preset-name {
+  display: block;
+  font-weight: 600;
+  font-size: 14px;
+  color: var(--admin-header-text);
+  margin-bottom: 4px;
+}
+
+.preset-desc {
+  font-size: 12px;
+  color: var(--el-text-color-secondary);
+  line-height: 1.4;
+}
+
+.mt8 {
+  margin-top: 10px;
+}
+
+.dash-collapse {
+  max-width: 640px;
+  border-radius: var(--admin-radius-md);
+}
+
+.mini-grid,
+.palette-grid {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 8px 0;
+}
+
+.palette-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
+  gap: 12px 20px;
+}
+
+.cp-row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.cp-row span {
+  min-width: 88px;
+  font-size: 13px;
+  color: var(--el-text-color-regular);
 }
 </style>

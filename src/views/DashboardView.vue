@@ -1,14 +1,14 @@
 <script setup>
 import { ref, computed, onMounted, onUnmounted, shallowRef, watch, nextTick } from 'vue'
-import { storeToRefs } from 'pinia'
 import * as echarts from 'echarts'
 import { fetchBootstrap } from '@/api/bootstrap'
 import { fetchDashboardOverview } from '@/api/adminDashboard'
 import { useThemeStore } from '@/stores/theme'
+import { resolveChartVisuals } from '@/config/dashboardChartTheme'
 import { ElMessage } from 'element-plus'
 
 const themeStore = useThemeStore()
-const { colors } = storeToRefs(themeStore)
+const chartVis = computed(() => resolveChartVisuals(themeStore))
 
 const TOTAL_LABELS = {
   users: '注册用户',
@@ -55,47 +55,11 @@ function ok(data) {
   return data?.code === 1
 }
 
-function hexToRgb(hex) {
-  let h = (hex || '').replace('#', '')
-  if (h.length === 3) h = h.split('').map((c) => c + c).join('')
-  const n = parseInt(h, 16)
-  if (Number.isNaN(n)) return { r: 192, g: 38, b: 211 }
-  return { r: (n >> 16) & 255, g: (n >> 8) & 255, b: n & 255 }
-}
-
-function rgbToHex(r, g, b) {
-  const c = (n) =>
-    Math.max(0, Math.min(255, Math.round(n)))
-      .toString(16)
-      .padStart(2, '0')
-  return `#${c(r)}${c(g)}${c(b)}`
-}
-
-function mixHex(a, b, t) {
-  const A = hexToRgb(a)
-  const B = typeof b === 'string' ? hexToRgb(b) : b
-  return rgbToHex(A.r + (B.r - A.r) * t, A.g + (B.g - A.g) * t, A.b + (B.b - A.b) * t)
-}
-
-function chartPalette() {
-  const p = colors.value.primary
-  const a = colors.value.accent
-  return [
-    p,
-    a,
-    mixHex(p, '#ffffff', 0.42),
-    mixHex(a, '#ffffff', 0.38),
-    mixHex(p, a, 0.45),
-    mixHex(p, '#e8e0f5', 0.35),
-    mixHex(a, '#fde8f3', 0.4),
-    mixHex(p, '#cbd5e1', 0.25),
-  ]
-}
-
 function splitLineStyle() {
+  const vis = chartVis.value
   return {
     type: 'dashed',
-    color: mixHex(colors.value.primary, '#e5e7eb', 0.55),
+    color: vis.splitLine,
     opacity: 0.45,
   }
 }
@@ -121,6 +85,10 @@ const kpiItems = computed(() => {
       value: overview.value.dauToday ?? 0,
     },
   ]
+  /**
+   * 按照业务关注度预设一个表顺序，实际数据中有的表才展示
+   * @type {string[]}
+   */
   const order = [
     'users',
     'characters',
@@ -152,6 +120,10 @@ const kpiItems = computed(() => {
   return items
 })
 
+/**
+ * 加载客户端 Bootstrap 数据
+ * @returns {Promise<void>}
+ */
 async function loadBootstrap() {
   bootstrapLoading.value = true
   bootstrapError.value = ''
@@ -177,22 +149,28 @@ async function loadOverview() {
   }
 }
 
+/**
+ * 构建折线图配置项
+ * @returns {{color: *, textStyle: {color: string}, tooltip: {trigger: string}, grid: {left: string, right: string, bottom: string, top: string, containLabel: boolean}, xAxis: {type: string, boundaryGap: boolean, data: *, axisLine: {lineStyle: {color: string}}, axisLabel: {fontSize: number}}, yAxis: {type: string, minInterval: number, splitLine: {lineStyle: {type: string, color: string, opacity: number}}}, series: [{name: string, type: string, smooth: boolean, symbol: string, symbolSize: number, lineStyle: {width: number, color: *}, itemStyle: {color: *}, areaStyle: {color: LinearGradient}, data: unknown[]}]}}
+ */
 function buildLineOption() {
+  const vis = chartVis.value
   const series = overview.value.dauSeries || []
   const days = series.map((d) => d.date?.slice(5) || d.date)
   const vals = series.map((d) => Number(d.count) || 0)
-  const p = colors.value.primary
-  const top = mixHex(p, '#ffffff', 0.75)
+  const p = vis.line.series
+  const top = vis.line.areaTop
+  const bottom = vis.line.areaBottom
   return {
-    color: chartPalette(),
-    textStyle: { color: mixHex(colors.value.headerText || '#1e1b2e', '#6b7280', 0.35) },
+    color: vis.palette,
+    textStyle: { color: vis.text },
     tooltip: { trigger: 'axis' },
     grid: { left: '3%', right: '4%', bottom: '3%', top: '14%', containLabel: true },
     xAxis: {
       type: 'category',
       boundaryGap: false,
       data: days,
-      axisLine: { lineStyle: { color: mixHex(p, '#e9d5ff', 0.4) } },
+      axisLine: { lineStyle: { color: vis.line.axis } },
       axisLabel: { fontSize: 11 },
     },
     yAxis: {
@@ -212,7 +190,7 @@ function buildLineOption() {
         areaStyle: {
           color: new echarts.graphic.LinearGradient(0, 0, 0, 1, [
             { offset: 0, color: `${top}55` },
-            { offset: 1, color: `${mixHex(p, '#ffffff', 0.95)}08` },
+            { offset: 1, color: `${bottom}08` },
           ]),
         },
         data: vals,
@@ -221,15 +199,18 @@ function buildLineOption() {
   }
 }
 
+/**
+ * 构建条形图配置项
+ * @returns {{color: *, textStyle: {color: string}, tooltip: {trigger: string, axisPointer: {type: string}}, grid: {left: string, right: string, bottom: string, top: string, containLabel: boolean}, xAxis: {type: string, splitLine: {lineStyle: {type: string, color: string, opacity: number}}}, yAxis: {type: string, data: (*|string)[], axisLine: {show: boolean}, axisTick: {show: boolean}, axisLabel: {fontSize: number, width: number, overflow: string}}, dataZoom: [{type: string, yAxisIndex: number, width: number, right: number, startValue, endValue}]|undefined, series: [{name: string, type: string, barMaxWidth: number, itemStyle: {borderRadius: number[], color: LinearGradient}, data: (number|number)[]}]}}
+ */
 function buildBarOption() {
+  const vis = chartVis.value
   const entries = sortedTotalEntries.value
   const names = entries.map((e) => e.label)
   const vals = entries.map((e) => e.value)
-  const p = colors.value.primary
-  const a = colors.value.accent
   return {
-    color: chartPalette(),
-    textStyle: { color: mixHex(colors.value.headerText || '#1e1b2e', '#6b7280', 0.35) },
+    color: vis.palette,
+    textStyle: { color: vis.text },
     tooltip: { trigger: 'axis', axisPointer: { type: 'shadow' } },
     grid: { left: '3%', right: '6%', bottom: '3%', top: '3%', containLabel: true },
     xAxis: { type: 'value', splitLine: { lineStyle: splitLineStyle() } },
@@ -252,8 +233,8 @@ function buildBarOption() {
         itemStyle: {
           borderRadius: [0, 8, 8, 0],
           color: new echarts.graphic.LinearGradient(1, 0, 0, 0, [
-            { offset: 0, color: a },
-            { offset: 1, color: p },
+            { offset: 0, color: vis.bar.gradStart },
+            { offset: 1, color: vis.bar.gradEnd },
           ]),
         },
         data: vals,
@@ -262,13 +243,18 @@ function buildBarOption() {
   }
 }
 
+/**
+ * 构建饼图配置项
+ * @returns {{color: *, textStyle: {color: string}, tooltip: {trigger: string}, legend: {bottom: number, type: string, textStyle: {fontSize: number}}, series: [{name: string, type: string, radius: string[], center: string[], avoidLabelOverlap: boolean, itemStyle: {borderRadius: number, borderColor: string, borderWidth: number}, label: {fontSize: number}, data: {name: *, value: *}[]}]}}
+ */
 function buildPieOption() {
+  const vis = chartVis.value
   const entries = sortedTotalEntries.value.slice(0, 10)
   const pieData = entries.map((e) => ({ name: e.label, value: e.value })).filter((d) => d.value > 0)
   if (!pieData.length) pieData.push({ name: '暂无', value: 1 })
   return {
-    color: chartPalette(),
-    textStyle: { color: mixHex(colors.value.headerText || '#1e1b2e', '#6b7280', 0.35) },
+    color: vis.palette,
+    textStyle: { color: vis.text },
     tooltip: { trigger: 'item' },
     legend: { bottom: 4, type: 'scroll', textStyle: { fontSize: 11 } },
     series: [
@@ -286,7 +272,12 @@ function buildPieOption() {
   }
 }
 
+/**
+ * 构建雷达图配置项
+ * @returns {{color: *, textStyle: {color: string}, tooltip: {}, radar: {center: string[], radius: string, indicator: *, splitLine: {lineStyle: {type: string, color: string, opacity: number}}, splitArea: {show: boolean, areaStyle: {color: string[]}}, axisName: {fontSize: number}}, series: [{type: string, areaStyle: {opacity: number}, lineStyle: {width: number, color: *}, itemStyle: {color: *}, data: [{value: unknown[], name: string}]}]}}
+ */
 function buildRadarOption() {
+  const vis = chartVis.value
   const t = overview.value.totals || {}
   const keys = ['users', 'articles', 'comments', 'conversations', 'messages', 'characters']
   const labels = keys.map((k) => TOTAL_LABELS[k] || k)
@@ -294,14 +285,20 @@ function buildRadarOption() {
   const maxV = Math.max(...vals, 1)
   const indicators = labels.map((name, i) => ({ name, max: Math.ceil(maxV * 1.15) || 1 }))
   return {
-    color: chartPalette(),
-    textStyle: { color: mixHex(colors.value.headerText || '#1e1b2e', '#6b7280', 0.35) },
+    color: vis.palette,
+    textStyle: { color: vis.text },
     tooltip: {},
     radar: {
       center: ['50%', '52%'],
       radius: '62%',
       indicator: indicators,
-      splitLine: { lineStyle: splitLineStyle() },
+      splitLine: {
+        lineStyle: {
+          type: 'dashed',
+          color: vis.radar.splitLine,
+          opacity: 0.45,
+        },
+      },
       splitArea: { show: true, areaStyle: { color: ['rgba(255,255,255,0.02)', 'rgba(255,255,255,0.06)'] } },
       axisName: { fontSize: 11 },
     },
@@ -309,15 +306,20 @@ function buildRadarOption() {
       {
         type: 'radar',
         areaStyle: { opacity: 0.22 },
-        lineStyle: { width: 2, color: colors.value.primary },
-        itemStyle: { color: colors.value.accent },
+        lineStyle: { width: 2, color: vis.radar.line },
+        itemStyle: { color: vis.radar.item },
         data: [{ value: vals, name: '规模' }],
       },
     ],
   }
 }
 
+/**
+ * 构建关系图配置项
+ * @returns {{title: {text: string, left: string, top: string, textStyle: {color: string, fontSize: number, fontWeight: number}}}|{color: (*|string)[], textStyle: {color: string}, tooltip: {}, series: [{type: string, layout: string, roam: boolean, draggable: boolean, data: {id: *, name: *, value: *, symbolSize, category: number}[], links: {source: *, target: *, value: *, lineStyle: {width, curveness: number}}[], categories: [{name: string}], label: {show: boolean, fontSize: number, color: string}, lineStyle: {color: string, opacity: number}, emphasis: {focus: string, lineStyle: {width: number}}, force: {repulsion: number, edgeLength: number[], gravity: number}}]}}
+ */
 function buildGraphOption() {
+  const vis = chartVis.value
   const g = overview.value.interestGraph || { nodes: [], links: [] }
   if (!(g.nodes && g.nodes.length)) {
     return {
@@ -325,7 +327,7 @@ function buildGraphOption() {
         text: '暂无画像兴趣数据',
         left: 'center',
         top: 'middle',
-        textStyle: { color: mixHex(colors.value.primary, '#9ca3af', 0.5), fontSize: 14, fontWeight: 400 },
+        textStyle: { color: vis.graphEmpty, fontSize: 14, fontWeight: 400 },
       },
     }
   }
@@ -342,10 +344,9 @@ function buildGraphOption() {
     value: l.value,
     lineStyle: { width: 0.5 + Math.min(5, Number(l.value) || 0), curveness: 0.12 },
   }))
-  const p = colors.value.primary
   return {
-    color: chartPalette(),
-    textStyle: { color: mixHex(colors.value.headerText || '#1e1b2e', '#6b7280', 0.35) },
+    color: vis.palette,
+    textStyle: { color: vis.text },
     tooltip: {},
     series: [
       {
@@ -356,7 +357,7 @@ function buildGraphOption() {
         data: nodes,
         links,
         categories: [{ name: '兴趣标签' }],
-        label: { show: true, fontSize: 10, color: mixHex(p, '#374151', 0.4) },
+        label: { show: true, fontSize: 10, color: vis.graphLabel },
         lineStyle: { color: 'source', opacity: 0.65 },
         emphasis: { focus: 'adjacency', lineStyle: { width: 3 } },
         force: {
@@ -369,7 +370,12 @@ function buildGraphOption() {
   }
 }
 
+/**
+ * 构建漏斗图配置项
+ * @returns {{color: (*|string)[], textStyle: {color: string}, tooltip: {trigger: string}, series: [{name: string, type: string, left: string, top: number, bottom: number, width: string, min: number, minSize: string, maxSize: string, sort: string, gap: number, label: {show: boolean, position: string, fontSize: number}, itemStyle: {borderColor: string, borderWidth: number}, data: [{name: string, value},{name: string, value},{name: string, value},{name: string, value}]}]}}
+ */
 function buildFunnelOption() {
+  const vis = chartVis.value
   const t = overview.value.totals || {}
   const stages = [
     { name: '注册用户', value: Number(t.users) || 0 },
@@ -378,8 +384,8 @@ function buildFunnelOption() {
     { name: '消息', value: Number(t.messages) || 0 },
   ]
   return {
-    color: chartPalette(),
-    textStyle: { color: mixHex(colors.value.headerText || '#1e1b2e', '#6b7280', 0.35) },
+    color: vis.palette,
+    textStyle: { color: vis.text },
     tooltip: { trigger: 'item' },
     series: [
       {
@@ -454,9 +460,8 @@ watch(
 )
 
 watch(
-  colors,
+  () => [themeStore.colors, themeStore.dashboardCharts],
   () => {
-    themeStore.applyDocumentVars()
     if (chartInstances.length) updateChartOptions()
   },
   { deep: true },

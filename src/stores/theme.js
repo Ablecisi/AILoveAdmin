@@ -1,7 +1,16 @@
 import { defineStore } from 'pinia'
 import { ADMIN_MENU_DEFS } from '@/config/adminMenu'
+import {
+  defaultChartCustomVisuals,
+  mergeVisualsPartial,
+  DASHBOARD_CHART_PRESETS,
+} from '@/config/dashboardChartTheme'
 
 const STORAGE_KEY = 'ailove-admin-theme-v1'
+/** 存于 app_config，换服务器后仍可恢复管理端外观与驾驶舱图表配置 */
+export const ADMIN_THEME_REMOTE_KEY = 'admin.ui.theme'
+
+let remotePersistTimer = null
 
 function defaultColors() {
   return {
@@ -18,6 +27,27 @@ function defaultColors() {
     mainBg: 'linear-gradient(165deg, #faf6ff 0%, #f3ecfb 42%, #efe8f7 100%)',
     cardBg: 'rgba(255, 255, 255, 0.92)',
     primary: '#fbd4ff',
+  }
+}
+
+function defaultDashboardCharts() {
+  return {
+    /** follow: 跟随外观主色/强调色；preset: 五套预制；custom: 逐项覆盖 */
+    mode: 'follow',
+    preset: 'romance',
+    custom: defaultChartCustomVisuals(),
+  }
+}
+
+function mergeDashboardChartsState(patch) {
+  const base = defaultDashboardCharts()
+  if (!patch || typeof patch !== 'object') return base
+  const mode = patch.mode
+  const preset = patch.preset
+  return {
+    mode: mode === 'follow' || mode === 'preset' || mode === 'custom' ? mode : base.mode,
+    preset: preset && DASHBOARD_CHART_PRESETS[preset] ? preset : base.preset,
+    custom: mergeVisualsPartial(base.custom, patch.custom || {}),
   }
 }
 
@@ -38,6 +68,9 @@ function defaultState() {
     menuTitleOverrides: {},
     /** route names hidden from sidebar */
     menuHidden: [],
+    dashboardCharts: defaultDashboardCharts(),
+    /** 是否把主题写入服务端 app_config（与 localStorage 双写） */
+    syncThemeToServer: true,
   }
 }
 
@@ -98,6 +131,10 @@ export const useThemeStore = defineStore('theme', {
         : {}
     merged.menuHidden = Array.isArray(saved.menuHidden) ? [...saved.menuHidden] : []
     merged.colors = { ...defaultColors(), ...(saved.colors || {}) }
+    merged.dashboardCharts = mergeDashboardChartsState(saved.dashboardCharts)
+    if (typeof saved.syncThemeToServer === 'boolean') {
+      merged.syncThemeToServer = saved.syncThemeToServer
+    }
     return merged
   },
 
@@ -148,26 +185,91 @@ export const useThemeStore = defineStore('theme', {
   },
 
   actions: {
-    persist() {
+    /** 仅写 localStorage，不触发服务端推送（用于拉取远程后回写） */
+    persistLocalOnly() {
       try {
-        const payload = {
-          brandTitle: this.brandTitle,
-          brandSubtitle: this.brandSubtitle,
-          browserTitleSuffix: this.browserTitleSuffix,
-          logoUrl: this.logoUrl,
-          colors: this.colors,
-          radiusSm: this.radiusSm,
-          radiusMd: this.radiusMd,
-          radiusLg: this.radiusLg,
-          shadowPreset: this.shadowPreset,
-          menuOrder: this.menuOrder,
-          menuTitleOverrides: this.menuTitleOverrides,
-          menuHidden: this.menuHidden,
-        }
-        localStorage.setItem(STORAGE_KEY, JSON.stringify(payload))
+        localStorage.setItem(STORAGE_KEY, JSON.stringify(this.serializePayload()))
       } catch (e) {
         console.warn('theme persist failed', e)
       }
+    },
+
+    serializePayload() {
+      return {
+        v: 1,
+        brandTitle: this.brandTitle,
+        brandSubtitle: this.brandSubtitle,
+        browserTitleSuffix: this.browserTitleSuffix,
+        logoUrl: this.logoUrl,
+        colors: this.colors,
+        radiusSm: this.radiusSm,
+        radiusMd: this.radiusMd,
+        radiusLg: this.radiusLg,
+        shadowPreset: this.shadowPreset,
+        menuOrder: this.menuOrder,
+        menuTitleOverrides: this.menuTitleOverrides,
+        menuHidden: this.menuHidden,
+        dashboardCharts: this.dashboardCharts,
+        syncThemeToServer: this.syncThemeToServer,
+      }
+    },
+
+    persist() {
+      this.persistLocalOnly()
+      if (!this.syncThemeToServer) return
+      if (remotePersistTimer) clearTimeout(remotePersistTimer)
+      remotePersistTimer = setTimeout(() => {
+        remotePersistTimer = null
+        this.pushThemeToServer()
+      }, 800)
+    },
+
+    async pushThemeToServer() {
+      if (!this.syncThemeToServer) return
+      try {
+        const { putAppConfigValue } = await import('@/api/adminAppConfig')
+        await putAppConfigValue(ADMIN_THEME_REMOTE_KEY, JSON.stringify(this.serializePayload()))
+      } catch (e) {
+        console.warn('[theme] push to server failed', e)
+      }
+    },
+
+    /**
+     * 登录后或进入后台时调用：以 app_config 中的 admin.ui.theme 为准合并到当前 store，并回写 localStorage。
+     */
+    async hydrateThemeFromServer() {
+      try {
+        const { fetchAdminAppConfig } = await import('@/api/adminAppConfig')
+        const { data } = await fetchAdminAppConfig()
+        if (data?.code !== 1 || !data.data) return
+        const raw = data.data[ADMIN_THEME_REMOTE_KEY]
+        if (!raw || typeof raw !== 'string') return
+        const remote = JSON.parse(raw)
+        if (!remote || typeof remote !== 'object') return
+        this.applyRemotePayload(remote)
+        this.applyDocumentVars()
+        this.persistLocalOnly()
+      } catch (e) {
+        console.warn('[theme] hydrate from server failed', e)
+      }
+    },
+
+    applyRemotePayload(remote) {
+      const { v: _schema, ...rest } = remote || {}
+      const base = defaultState()
+      const merged = deepMerge(base, rest)
+      merged.menuOrder = mergeMenuOrder(rest.menuOrder || merged.menuOrder)
+      merged.menuTitleOverrides =
+        rest.menuTitleOverrides && typeof rest.menuTitleOverrides === 'object'
+          ? { ...rest.menuTitleOverrides }
+          : {}
+      merged.menuHidden = Array.isArray(rest.menuHidden) ? [...rest.menuHidden] : []
+      merged.colors = { ...defaultColors(), ...(rest.colors || {}) }
+      merged.dashboardCharts = mergeDashboardChartsState(rest.dashboardCharts)
+      if (typeof rest.syncThemeToServer === 'boolean') {
+        merged.syncThemeToServer = rest.syncThemeToServer
+      }
+      this.$patch(merged)
     },
 
     applyDocumentVars() {
@@ -203,6 +305,12 @@ export const useThemeStore = defineStore('theme', {
       this.$patch(d)
       this.persist()
       this.applyDocumentVars()
+    },
+
+    /** 仅恢复驾驶舱 ECharts 配色为出厂默认（跟随外观 + 恋恋预制数据），不影响侧栏/品牌等 */
+    resetDashboardChartsToDefaults() {
+      this.dashboardCharts = defaultDashboardCharts()
+      this.persist()
     },
 
     async setLogoFromFile(file) {

@@ -29,6 +29,7 @@ async function onSubmit() {
   loading.value = true
   try {
     await auth.login(username.value.trim(), password.value)
+    await theme.hydrateThemeFromServer()
     ElMessage.success('登录成功')
     const redirect = route.query.redirect
     let path = null

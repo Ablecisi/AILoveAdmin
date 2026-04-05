@@ -1,5 +1,5 @@
 <script setup>
-import { computed } from 'vue'
+import { computed, onMounted } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { storeToRefs } from 'pinia'
 import { useAuthStore } from '@/stores/auth'
@@ -10,6 +10,7 @@ import { Brush } from '@element-plus/icons-vue'
 const route = useRoute()
 const router = useRouter()
 const auth = useAuthStore()
+const { isLoggedIn } = storeToRefs(auth)
 const theme = useThemeStore()
 const { brandTitle, brandSubtitle, logoUrl, colors } = storeToRefs(theme)
 
@@ -41,6 +42,12 @@ function handleLogout() {
 function goAppearance() {
   router.push({ name: 'appearance' })
 }
+
+onMounted(() => {
+  if (isLoggedIn.value) {
+    theme.hydrateThemeFromServer()
+  }
+})
 </script>
 
 <template>
