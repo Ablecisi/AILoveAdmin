@@ -4,6 +4,7 @@ import { useRoute, useRouter } from 'vue-router'
 import { storeToRefs } from 'pinia'
 import { useAuthStore } from '@/stores/auth'
 import { useThemeStore } from '@/stores/theme'
+import { resolveMediaUrl } from '@/utils/mediaUrl'
 import { ElMessage } from 'element-plus'
 
 const router = useRouter()
@@ -14,6 +15,7 @@ const { brandTitle, brandSubtitle, logoUrl } = storeToRefs(theme)
 
 const loginHeadline = computed(() => brandTitle.value || 'AI恋恋')
 const loginSub = computed(() => brandSubtitle.value || '运营中枢')
+const logoSrc = computed(() => (logoUrl.value ? resolveMediaUrl(logoUrl.value) : ''))
 
 const username = ref('')
 const password = ref('')
@@ -49,8 +51,8 @@ async function onSubmit() {
     <el-card class="login-card" shadow="never">
       <template #header>
         <div class="card-header">
-          <div v-if="logoUrl" class="login-logo-wrap">
-            <img :src="logoUrl" alt="" class="login-logo" />
+          <div v-if="logoSrc" class="login-logo-wrap">
+            <img :src="logoSrc" alt="" class="login-logo" />
           </div>
           <div v-else class="login-icon-fallback">💕</div>
           <div class="card-titles">

@@ -127,14 +127,15 @@ onMounted(() => {
           <el-button @click="loadConversations">刷新</el-button>
         </div>
         <el-table v-loading="convLoading" :data="convData" stripe class="mt" style="width: 100%">
-          <el-table-column prop="id" label="会话 ID" width="96" />
-          <el-table-column prop="userId" label="用户" width="88" />
-          <el-table-column prop="characterId" label="角色 ID" width="88" />
-          <el-table-column prop="characterName" label="角色" width="120" show-overflow-tooltip />
-          <el-table-column prop="title" label="标题" min-width="140" show-overflow-tooltip />
-          <el-table-column prop="lastMessage" label="最后消息" min-width="180" show-overflow-tooltip />
-          <el-table-column prop="lastMsgAt" label="最后活跃" width="168" />
-          <el-table-column prop="createTime" label="创建" width="168" />
+          <el-table-column prop="id" label="会话ID" width="88" />
+          <el-table-column prop="userId" label="用户ID" width="88" />
+          <el-table-column prop="characterId" label="角色ID" width="96" />
+          <el-table-column prop="characterName" label="角色名称" width="120" show-overflow-tooltip />
+          <el-table-column prop="title" label="标题" min-width="120" show-overflow-tooltip />
+          <el-table-column prop="lastMessage" label="最后消息" min-width="160" show-overflow-tooltip />
+          <el-table-column prop="lastMsgAt" label="最后消息时间" width="168" />
+          <el-table-column prop="createTime" label="创建时间" width="168" />
+          <el-table-column prop="updateTime" label="更新时间" width="168" />
         </el-table>
         <div class="pager">
           <el-pagination
@@ -168,19 +169,20 @@ onMounted(() => {
           <el-button @click="loadMessages">刷新</el-button>
         </div>
         <el-table v-loading="msgLoading" :data="msgData" stripe class="mt" style="width: 100%">
-          <el-table-column prop="id" label="消息 ID" width="96" />
-          <el-table-column prop="conversationId" label="会话" width="96" />
-          <el-table-column prop="userId" label="用户" width="88" />
+          <el-table-column prop="id" label="消息ID" width="88" />
+          <el-table-column prop="conversationId" label="会话ID" width="120" />
+          <el-table-column prop="userId" label="用户ID" width="88" />
           <el-table-column prop="type" label="类型" width="80">
             <template #default="{ row }">
-              <el-tag size="small" :type="row.type === 1 ? 'info' : 'primary'">
-                {{ row.type === 1 ? 'AI' : '用户' }}
-              </el-tag>
+              <span>{{ row.type }}</span>
             </template>
           </el-table-column>
-          <el-table-column prop="contentPreview" label="内容（前 500 字）" min-width="260" show-overflow-tooltip />
-          <el-table-column prop="emotion" label="情绪" width="88" />
-          <el-table-column prop="createTime" label="时间" width="168" />
+          <el-table-column prop="content" label="内容" min-width="220" show-overflow-tooltip />
+          <el-table-column prop="emotion" label="情绪" width="96" />
+          <el-table-column prop="confidence" label="置信度" width="100" />
+          <el-table-column prop="isRead" label="已读" width="80" />
+          <el-table-column prop="createTime" label="创建时间" width="168" />
+          <el-table-column prop="updateTime" label="更新时间" width="168" />
         </el-table>
         <div class="pager">
           <el-pagination

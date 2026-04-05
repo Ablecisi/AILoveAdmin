@@ -1,36 +1,156 @@
 <script setup>
-import { ref, onMounted, onUnmounted, shallowRef, watch, nextTick } from 'vue'
+import { ref, computed, onMounted, onUnmounted, shallowRef, watch, nextTick } from 'vue'
+import { storeToRefs } from 'pinia'
 import * as echarts from 'echarts'
 import { fetchBootstrap } from '@/api/bootstrap'
-import { fetchDashboardTotals } from '@/api/adminDashboard'
+import { fetchDashboardOverview } from '@/api/adminDashboard'
+import { useThemeStore } from '@/stores/theme'
 import { ElMessage } from 'element-plus'
 
-const CHART_COLORS = ['#c026d3', '#ec4899', '#8b5cf6', '#d946ef', '#f472b6', '#a855f7']
+const themeStore = useThemeStore()
+const { colors } = storeToRefs(themeStore)
+
+const TOTAL_LABELS = {
+  users: '注册用户',
+  characters: 'AI 角色',
+  articles: '文章',
+  comments: '评论',
+  conversations: '会话',
+  messages: '消息',
+  posts: '帖子',
+  types: '类型字典',
+  prompts: 'Prompt 模板',
+  userProfiles: '用户画像',
+  emotionLogs: '情绪日志',
+  followRelations: '关注关系',
+  articleLikes: '文章点赞',
+  articleCollects: '文章收藏',
+  postLikes: '帖子点赞',
+  commentLikes: '评论点赞',
+}
 
 const bootstrapLoading = ref(false)
 const bootstrap = ref(null)
 const bootstrapError = ref('')
 
-const totalsLoading = ref(false)
-const totals = ref({
-  users: null,
-  characters: null,
-  articles: null,
-  comments: null,
-  conversations: null,
-  messages: null,
+const overviewLoading = ref(false)
+const overview = ref({
+  totals: {},
+  dauSeries: [],
+  dauToday: 0,
+  interestGraph: { nodes: [], links: [] },
 })
 
 const lineRef = shallowRef(null)
 const barRef = shallowRef(null)
 const pieRef = shallowRef(null)
-let chartLine = null
-let chartBar = null
-let chartPie = null
+const radarRef = shallowRef(null)
+const graphRef = shallowRef(null)
+const funnelRef = shallowRef(null)
+
+/** @type {echarts.EChartsType[]} */
+let chartInstances = []
 
 function ok(data) {
   return data?.code === 1
 }
+
+function hexToRgb(hex) {
+  let h = (hex || '').replace('#', '')
+  if (h.length === 3) h = h.split('').map((c) => c + c).join('')
+  const n = parseInt(h, 16)
+  if (Number.isNaN(n)) return { r: 192, g: 38, b: 211 }
+  return { r: (n >> 16) & 255, g: (n >> 8) & 255, b: n & 255 }
+}
+
+function rgbToHex(r, g, b) {
+  const c = (n) =>
+    Math.max(0, Math.min(255, Math.round(n)))
+      .toString(16)
+      .padStart(2, '0')
+  return `#${c(r)}${c(g)}${c(b)}`
+}
+
+function mixHex(a, b, t) {
+  const A = hexToRgb(a)
+  const B = typeof b === 'string' ? hexToRgb(b) : b
+  return rgbToHex(A.r + (B.r - A.r) * t, A.g + (B.g - A.g) * t, A.b + (B.b - A.b) * t)
+}
+
+function chartPalette() {
+  const p = colors.value.primary
+  const a = colors.value.accent
+  return [
+    p,
+    a,
+    mixHex(p, '#ffffff', 0.42),
+    mixHex(a, '#ffffff', 0.38),
+    mixHex(p, a, 0.45),
+    mixHex(p, '#e8e0f5', 0.35),
+    mixHex(a, '#fde8f3', 0.4),
+    mixHex(p, '#cbd5e1', 0.25),
+  ]
+}
+
+function splitLineStyle() {
+  return {
+    type: 'dashed',
+    color: mixHex(colors.value.primary, '#e5e7eb', 0.55),
+    opacity: 0.45,
+  }
+}
+
+const sortedTotalEntries = computed(() => {
+  const t = overview.value.totals || {}
+  return Object.keys(t)
+    .map((k) => ({ key: k, label: TOTAL_LABELS[k] || k, value: Number(t[k]) || 0 }))
+    .sort((a, b) => b.value - a.value)
+})
+
+const barChartHeight = computed(() => {
+  const n = sortedTotalEntries.value.length || 1
+  return Math.min(620, 100 + n * 28)
+})
+
+const kpiItems = computed(() => {
+  const items = [
+    {
+      key: 'dauToday',
+      label: '今日活跃（DAU）',
+      hint: '当日至少打开过一次 App 的用户数',
+      value: overview.value.dauToday ?? 0,
+    },
+  ]
+  const order = [
+    'users',
+    'characters',
+    'articles',
+    'posts',
+    'comments',
+    'conversations',
+    'messages',
+    'types',
+    'prompts',
+    'userProfiles',
+    'emotionLogs',
+    'followRelations',
+    'articleLikes',
+    'articleCollects',
+    'postLikes',
+    'commentLikes',
+  ]
+  const t = overview.value.totals || {}
+  for (const key of order) {
+    if (t[key] == null) continue
+    items.push({
+      key,
+      label: TOTAL_LABELS[key] || key,
+      hint: '库表记录规模',
+      value: Number(t[key]) || 0,
+    })
+  }
+  return items
+})
 
 async function loadBootstrap() {
   bootstrapLoading.value = true
@@ -46,79 +166,94 @@ async function loadBootstrap() {
   }
 }
 
-async function loadTotals() {
-  totalsLoading.value = true
+async function loadOverview() {
+  overviewLoading.value = true
   try {
-    totals.value = await fetchDashboardTotals()
-  } catch {
-    /* 401 等由拦截器处理 */
+    overview.value = await fetchDashboardOverview()
+  } catch (e) {
+    ElMessage.error(e?.message || '驾驶舱数据加载失败')
   } finally {
-    totalsLoading.value = false
+    overviewLoading.value = false
   }
 }
 
 function buildLineOption() {
-  const days = ['周一', '周二', '周三', '周四', '周五', '周六', '周日']
-  const base = totals.value.users ?? 120
-  const series = days.map((_, i) => Math.max(0, Math.round(base * (0.55 + Math.sin(i * 0.7) * 0.12 + i * 0.04))))
+  const series = overview.value.dauSeries || []
+  const days = series.map((d) => d.date?.slice(5) || d.date)
+  const vals = series.map((d) => Number(d.count) || 0)
+  const p = colors.value.primary
+  const top = mixHex(p, '#ffffff', 0.75)
   return {
-    color: CHART_COLORS,
+    color: chartPalette(),
+    textStyle: { color: mixHex(colors.value.headerText || '#1e1b2e', '#6b7280', 0.35) },
     tooltip: { trigger: 'axis' },
     grid: { left: '3%', right: '4%', bottom: '3%', top: '14%', containLabel: true },
-    xAxis: { type: 'category', boundaryGap: false, data: days, axisLine: { lineStyle: { color: '#c4b5d5' } } },
-    yAxis: { type: 'value', splitLine: { lineStyle: { type: 'dashed', color: 'rgba(168,85,247,0.12)' } } },
+    xAxis: {
+      type: 'category',
+      boundaryGap: false,
+      data: days,
+      axisLine: { lineStyle: { color: mixHex(p, '#e9d5ff', 0.4) } },
+      axisLabel: { fontSize: 11 },
+    },
+    yAxis: {
+      type: 'value',
+      minInterval: 1,
+      splitLine: { lineStyle: splitLineStyle() },
+    },
     series: [
       {
-        name: '活跃指数',
+        name: 'DAU',
         type: 'line',
         smooth: true,
         symbol: 'circle',
-        symbolSize: 8,
-        lineStyle: { width: 3 },
+        symbolSize: 7,
+        lineStyle: { width: 2.5, color: p },
+        itemStyle: { color: p },
         areaStyle: {
           color: new echarts.graphic.LinearGradient(0, 0, 0, 1, [
-            { offset: 0, color: 'rgba(192,38,211,0.35)' },
-            { offset: 1, color: 'rgba(192,38,211,0.02)' },
+            { offset: 0, color: `${top}55` },
+            { offset: 1, color: `${mixHex(p, '#ffffff', 0.95)}08` },
           ]),
         },
-        data: series,
+        data: vals,
       },
     ],
   }
 }
 
 function buildBarOption() {
-  const keys = [
-    ['用户', totals.value.users],
-    ['AI 角色', totals.value.characters],
-    ['文章', totals.value.articles],
-    ['评论', totals.value.comments],
-    ['会话', totals.value.conversations],
-    ['消息', totals.value.messages],
-  ]
-  const names = keys.map(([a]) => a)
-  const vals = keys.map(([, b]) => (typeof b === 'number' ? b : 0))
+  const entries = sortedTotalEntries.value
+  const names = entries.map((e) => e.label)
+  const vals = entries.map((e) => e.value)
+  const p = colors.value.primary
+  const a = colors.value.accent
   return {
-    color: CHART_COLORS,
-    tooltip: { trigger: 'axis' },
-    grid: { left: '3%', right: '4%', bottom: '3%', top: '12%', containLabel: true },
-    xAxis: {
+    color: chartPalette(),
+    textStyle: { color: mixHex(colors.value.headerText || '#1e1b2e', '#6b7280', 0.35) },
+    tooltip: { trigger: 'axis', axisPointer: { type: 'shadow' } },
+    grid: { left: '3%', right: '6%', bottom: '3%', top: '3%', containLabel: true },
+    xAxis: { type: 'value', splitLine: { lineStyle: splitLineStyle() } },
+    yAxis: {
       type: 'category',
       data: names,
-      axisLabel: { color: '#6b7280' },
-      axisLine: { lineStyle: { color: '#e9d5ff' } },
+      axisLine: { show: false },
+      axisTick: { show: false },
+      axisLabel: { fontSize: 11, width: 108, overflow: 'truncate' },
     },
-    yAxis: { type: 'value', splitLine: { lineStyle: { type: 'dashed', color: 'rgba(168,85,247,0.12)' } } },
+    dataZoom:
+      names.length > 12
+        ? [{ type: 'slider', yAxisIndex: 0, width: 14, right: 4, startValue: names.length - 12, endValue: names.length - 1 }]
+        : undefined,
     series: [
       {
         name: '数量',
         type: 'bar',
-        barWidth: '52%',
+        barMaxWidth: 22,
         itemStyle: {
-          borderRadius: [8, 8, 0, 0],
-          color: new echarts.graphic.LinearGradient(0, 0, 0, 1, [
-            { offset: 0, color: '#d946ef' },
-            { offset: 1, color: '#8b5cf6' },
+          borderRadius: [0, 8, 8, 0],
+          color: new echarts.graphic.LinearGradient(1, 0, 0, 0, [
+            { offset: 0, color: a },
+            { offset: 1, color: p },
           ]),
         },
         data: vals,
@@ -128,75 +263,208 @@ function buildBarOption() {
 }
 
 function buildPieOption() {
-  const pieData = [
-    { name: '用户', value: totals.value.users ?? 1 },
-    { name: '角色', value: totals.value.characters ?? 1 },
-    { name: '文章', value: totals.value.articles ?? 1 },
-    { name: '评论', value: totals.value.comments ?? 1 },
-  ].filter((d) => d.value > 0)
+  const entries = sortedTotalEntries.value.slice(0, 10)
+  const pieData = entries.map((e) => ({ name: e.label, value: e.value })).filter((d) => d.value > 0)
+  if (!pieData.length) pieData.push({ name: '暂无', value: 1 })
   return {
-    color: CHART_COLORS,
+    color: chartPalette(),
+    textStyle: { color: mixHex(colors.value.headerText || '#1e1b2e', '#6b7280', 0.35) },
     tooltip: { trigger: 'item' },
-    legend: { bottom: 0, textStyle: { color: '#6b7280' } },
+    legend: { bottom: 4, type: 'scroll', textStyle: { fontSize: 11 } },
     series: [
       {
-        name: '结构',
+        name: '占比',
         type: 'pie',
-        radius: ['42%', '68%'],
+        radius: ['40%', '68%'],
         center: ['50%', '46%'],
         avoidLabelOverlap: true,
-        itemStyle: { borderRadius: 8, borderColor: '#fff', borderWidth: 2 },
-        label: { color: '#4b5563' },
+        itemStyle: { borderRadius: 7, borderColor: '#fff', borderWidth: 2 },
+        label: { fontSize: 11 },
         data: pieData,
       },
     ],
   }
 }
 
+function buildRadarOption() {
+  const t = overview.value.totals || {}
+  const keys = ['users', 'articles', 'comments', 'conversations', 'messages', 'characters']
+  const labels = keys.map((k) => TOTAL_LABELS[k] || k)
+  const vals = keys.map((k) => Number(t[k]) || 0)
+  const maxV = Math.max(...vals, 1)
+  const indicators = labels.map((name, i) => ({ name, max: Math.ceil(maxV * 1.15) || 1 }))
+  return {
+    color: chartPalette(),
+    textStyle: { color: mixHex(colors.value.headerText || '#1e1b2e', '#6b7280', 0.35) },
+    tooltip: {},
+    radar: {
+      center: ['50%', '52%'],
+      radius: '62%',
+      indicator: indicators,
+      splitLine: { lineStyle: splitLineStyle() },
+      splitArea: { show: true, areaStyle: { color: ['rgba(255,255,255,0.02)', 'rgba(255,255,255,0.06)'] } },
+      axisName: { fontSize: 11 },
+    },
+    series: [
+      {
+        type: 'radar',
+        areaStyle: { opacity: 0.22 },
+        lineStyle: { width: 2, color: colors.value.primary },
+        itemStyle: { color: colors.value.accent },
+        data: [{ value: vals, name: '规模' }],
+      },
+    ],
+  }
+}
+
+function buildGraphOption() {
+  const g = overview.value.interestGraph || { nodes: [], links: [] }
+  if (!(g.nodes && g.nodes.length)) {
+    return {
+      title: {
+        text: '暂无画像兴趣数据',
+        left: 'center',
+        top: 'middle',
+        textStyle: { color: mixHex(colors.value.primary, '#9ca3af', 0.5), fontSize: 14, fontWeight: 400 },
+      },
+    }
+  }
+  const nodes = (g.nodes || []).map((n) => ({
+    id: n.id,
+    name: n.name,
+    value: n.value,
+    symbolSize: 10 + Math.min(36, (Number(n.value) || 0) * 3),
+    category: 0,
+  }))
+  const links = (g.links || []).map((l) => ({
+    source: l.source,
+    target: l.target,
+    value: l.value,
+    lineStyle: { width: 0.5 + Math.min(5, Number(l.value) || 0), curveness: 0.12 },
+  }))
+  const p = colors.value.primary
+  return {
+    color: chartPalette(),
+    textStyle: { color: mixHex(colors.value.headerText || '#1e1b2e', '#6b7280', 0.35) },
+    tooltip: {},
+    series: [
+      {
+        type: 'graph',
+        layout: 'force',
+        roam: true,
+        draggable: true,
+        data: nodes,
+        links,
+        categories: [{ name: '兴趣标签' }],
+        label: { show: true, fontSize: 10, color: mixHex(p, '#374151', 0.4) },
+        lineStyle: { color: 'source', opacity: 0.65 },
+        emphasis: { focus: 'adjacency', lineStyle: { width: 3 } },
+        force: {
+          repulsion: 220,
+          edgeLength: [48, 140],
+          gravity: 0.08,
+        },
+      },
+    ],
+  }
+}
+
+function buildFunnelOption() {
+  const t = overview.value.totals || {}
+  const stages = [
+    { name: '注册用户', value: Number(t.users) || 0 },
+    { name: '用户画像', value: Number(t.userProfiles) || 0 },
+    { name: '会话', value: Number(t.conversations) || 0 },
+    { name: '消息', value: Number(t.messages) || 0 },
+  ]
+  return {
+    color: chartPalette(),
+    textStyle: { color: mixHex(colors.value.headerText || '#1e1b2e', '#6b7280', 0.35) },
+    tooltip: { trigger: 'item' },
+    series: [
+      {
+        name: '漏斗',
+        type: 'funnel',
+        left: '8%',
+        top: 16,
+        bottom: 8,
+        width: '84%',
+        min: 0,
+        minSize: '0%',
+        maxSize: '100%',
+        sort: 'descending',
+        gap: 4,
+        label: { show: true, position: 'inside', fontSize: 11 },
+        itemStyle: { borderColor: '#fff', borderWidth: 1 },
+        data: stages,
+      },
+    ],
+  }
+}
+
 function disposeCharts() {
-  chartLine?.dispose()
-  chartBar?.dispose()
-  chartPie?.dispose()
-  chartLine = chartBar = chartPie = null
+  chartInstances.forEach((c) => c.dispose())
+  chartInstances = []
 }
 
 function resizeCharts() {
-  chartLine?.resize()
-  chartBar?.resize()
-  chartPie?.resize()
+  chartInstances.forEach((c) => c.resize())
+}
+
+function mountChart(el, builder) {
+  if (!el) return
+  const c = echarts.init(el)
+  c.setOption(builder())
+  chartInstances.push(c)
 }
 
 function initCharts() {
   disposeCharts()
   nextTick(() => {
-    if (lineRef.value) {
-      chartLine = echarts.init(lineRef.value)
-      chartLine.setOption(buildLineOption())
-    }
-    if (barRef.value) {
-      chartBar = echarts.init(barRef.value)
-      chartBar.setOption(buildBarOption())
-    }
-    if (pieRef.value) {
-      chartPie = echarts.init(pieRef.value)
-      chartPie.setOption(buildPieOption())
-    }
+    mountChart(lineRef.value, buildLineOption)
+    mountChart(barRef.value, buildBarOption)
+    mountChart(pieRef.value, buildPieOption)
+    mountChart(radarRef.value, buildRadarOption)
+    mountChart(graphRef.value, buildGraphOption)
+    mountChart(funnelRef.value, buildFunnelOption)
     resizeCharts()
   })
 }
 
+function updateChartOptions() {
+  const builders = [
+    buildLineOption,
+    buildBarOption,
+    buildPieOption,
+    buildRadarOption,
+    buildGraphOption,
+    buildFunnelOption,
+  ]
+  chartInstances.forEach((c, i) => {
+    if (builders[i]) c.setOption(builders[i](), true)
+  })
+}
+
 watch(
-  totals,
+  () => overview.value,
   () => {
-    if (chartLine) chartLine.setOption(buildLineOption())
-    if (chartBar) chartBar.setOption(buildBarOption())
-    if (chartPie) chartPie.setOption(buildPieOption())
+    if (chartInstances.length) updateChartOptions()
+  },
+  { deep: true },
+)
+
+watch(
+  colors,
+  () => {
+    themeStore.applyDocumentVars()
+    if (chartInstances.length) updateChartOptions()
   },
   { deep: true },
 )
 
 onMounted(async () => {
-  await Promise.all([loadBootstrap(), loadTotals()])
+  themeStore.applyDocumentVars()
+  await Promise.all([loadBootstrap(), loadOverview()])
   initCharts()
   window.addEventListener('resize', resizeCharts)
 })
@@ -211,17 +479,8 @@ function formatNum(n) {
   return String(n)
 }
 
-const kpiList = [
-  { key: 'users', label: '注册用户', icon: 'User' },
-  { key: 'characters', label: 'AI 角色', icon: 'Avatar' },
-  { key: 'articles', label: '文章', icon: 'Document' },
-  { key: 'comments', label: '评论', icon: 'ChatDotRound' },
-  { key: 'conversations', label: '会话', icon: 'ChatLineRound' },
-  { key: 'messages', label: '消息', icon: 'Message' },
-]
-
 async function refreshAll() {
-  await Promise.all([loadBootstrap(), loadTotals()])
+  await Promise.all([loadBootstrap(), loadOverview()])
   ElMessage.success('已刷新')
   initCharts()
 }
@@ -229,62 +488,98 @@ async function refreshAll() {
 
 <template>
   <div class="dash">
-    <div class="dash-head">
-      <div>
+    <header class="dash-hero">
+      <div class="dash-hero-text">
         <h1 class="dash-title">运营驾驶舱</h1>
-        <p class="dash-sub">AI恋恋 · 数据一览与趋势感知</p>
+        <p class="dash-lead">AI恋恋 · 全量业务指标与 DAU 趋势</p>
       </div>
-      <el-button type="primary" round :loading="totalsLoading || bootstrapLoading" @click="refreshAll">
+      <el-button type="primary" round :loading="overviewLoading || bootstrapLoading" @click="refreshAll">
         刷新数据
       </el-button>
-    </div>
+    </header>
 
-    <div class="kpi-grid">
-      <div v-for="item in kpiList" :key="item.key" class="kpi-card">
-        <div class="kpi-icon-wrap">
-          <el-icon class="kpi-icon" :size="22"><component :is="item.icon" /></el-icon>
-        </div>
-        <div class="kpi-body">
-          <div class="kpi-label">{{ item.label }}</div>
-          <div class="kpi-value">{{ formatNum(totals[item.key]) }}</div>
-        </div>
+    <section class="kpi-strip" aria-label="关键指标">
+      <div v-for="item in kpiItems" :key="item.key" class="kpi-tile">
+        <div class="kpi-tile-label">{{ item.label }}</div>
+        <div class="kpi-tile-value">{{ formatNum(item.value) }}</div>
+        <div class="kpi-tile-hint">{{ item.hint }}</div>
       </div>
-    </div>
+    </section>
 
-    <div class="charts-grid">
-      <el-card class="chart-panel" shadow="never">
+    <section class="charts" aria-label="图表">
+      <el-card class="panel panel--hero" shadow="never">
         <template #header>
-          <span class="panel-title">近 7 日活跃趋势</span>
-          <span class="panel-hint">示意曲线 · 与用户数规模联动</span>
+          <div class="panel-head">
+            <span class="panel-title">近 14 日每日活跃用户（DAU）</span>
+            <span class="panel-sub">基于 user_active_day · 时区 Asia/Shanghai</span>
+          </div>
         </template>
-        <div ref="lineRef" class="chart-box" />
+        <div ref="lineRef" class="chart chart--line" />
       </el-card>
-      <el-card class="chart-panel" shadow="never">
-        <template #header>
-          <span class="panel-title">模块规模</span>
-          <span class="panel-hint">来自管理端分页 total</span>
-        </template>
-        <div ref="barRef" class="chart-box" />
-      </el-card>
-      <el-card class="chart-panel chart-panel--wide" shadow="never">
-        <template #header>
-          <span class="panel-title">核心结构占比</span>
-          <span class="panel-hint">用户 / 角色 / 文章 / 评论</span>
-        </template>
-        <div ref="pieRef" class="chart-box chart-box--pie" />
-      </el-card>
-    </div>
 
-    <el-card class="bootstrap-panel" shadow="never">
+      <el-card class="panel" shadow="never">
+        <template #header>
+          <div class="panel-head">
+            <span class="panel-title">业务规模一览</span>
+            <span class="panel-sub">横向条形图 · 全表统计</span>
+          </div>
+        </template>
+        <div ref="barRef" class="chart chart--bar" :style="{ height: `${barChartHeight}px` }" />
+      </el-card>
+
+      <div class="charts-duo">
+        <el-card class="panel" shadow="never">
+          <template #header>
+            <div class="panel-head">
+              <span class="panel-title">结构占比（Top 10）</span>
+              <span class="panel-sub">按记录数</span>
+            </div>
+          </template>
+          <div ref="pieRef" class="chart chart--pie" />
+        </el-card>
+        <el-card class="panel" shadow="never">
+          <template #header>
+            <div class="panel-head">
+              <span class="panel-title">核心六维雷达</span>
+              <span class="panel-sub">用户 / 内容 / 互动</span>
+            </div>
+          </template>
+          <div ref="radarRef" class="chart chart--radar" />
+        </el-card>
+      </div>
+
+      <div class="charts-duo charts-duo--funnel">
+        <el-card class="panel" shadow="never">
+          <template #header>
+            <div class="panel-head">
+              <span class="panel-title">用户旅程漏斗</span>
+              <span class="panel-sub">注册 → 画像 → 会话 → 消息（规模示意）</span>
+            </div>
+          </template>
+          <div ref="funnelRef" class="chart chart--funnel" />
+        </el-card>
+        <el-card class="panel panel--graph" shadow="never">
+          <template #header>
+            <div class="panel-head">
+              <span class="panel-title">用户兴趣共现关系</span>
+              <span class="panel-sub">画像 interests 共现 · 可拖拽缩放（Graph）</span>
+            </div>
+          </template>
+          <div ref="graphRef" class="chart chart--graph" />
+        </el-card>
+      </div>
+    </section>
+
+    <el-card class="panel panel--boot" shadow="never">
       <template #header>
-        <div class="bootstrap-head">
-          <span class="panel-title">Bootstrap 配置</span>
+        <div class="panel-head panel-head--row">
+          <span class="panel-title">客户端 Bootstrap</span>
           <el-button type="primary" link :loading="bootstrapLoading" @click="loadBootstrap">刷新</el-button>
         </div>
       </template>
-      <p class="desc">
-        公开接口 <code>GET /api/app/bootstrap</code>；限流阈值见 App 配置中的
-        <code>rateLimit.*</code> 键。
+      <p class="boot-desc">
+        公开接口 <code>GET /api/app/bootstrap</code>；限流见 App 配置中的 <code>rateLimit.*</code>。
+        C 端日活请调用 <code>POST /api/user/activity/ping</code>（需登录，建议 App 冷启动调用）。
       </p>
       <el-alert v-if="bootstrapError && !bootstrap" type="warning" :title="bootstrapError" show-icon class="mb" />
       <el-skeleton v-if="bootstrapLoading && !bootstrap" :rows="4" animated />
@@ -299,157 +594,179 @@ async function refreshAll() {
 
 <style scoped>
 .dash {
-  max-width: 1400px;
+  max-width: 1200px;
   margin: 0 auto;
+  padding-bottom: 48px;
 }
 
-.dash-head {
+.dash-hero {
   display: flex;
   align-items: flex-end;
   justify-content: space-between;
-  gap: 16px;
-  margin-bottom: 24px;
+  gap: 20px;
+  margin-bottom: 28px;
 }
 
 .dash-title {
-  margin: 0 0 6px;
-  font-size: 1.65rem;
-  font-weight: 700;
-  letter-spacing: 0.02em;
-  background: linear-gradient(110deg, #86198f 0%, #c026d3 35%, #db2777 100%);
+  margin: 0 0 8px;
+  font-size: clamp(1.75rem, 2.5vw, 2rem);
+  font-weight: 650;
+  letter-spacing: -0.02em;
+  line-height: 1.15;
+  background: linear-gradient(
+    115deg,
+    var(--el-color-primary, #c026d3) 0%,
+    var(--admin-accent, #f472b6) 55%,
+    var(--el-color-primary, #c026d3) 100%
+  );
   -webkit-background-clip: text;
   background-clip: text;
   color: transparent;
 }
 
-.dash-sub {
+.dash-lead {
   margin: 0;
   font-size: 14px;
   color: var(--el-text-color-secondary);
+  font-weight: 400;
+  letter-spacing: 0.01em;
 }
 
-.kpi-grid {
+.kpi-strip {
   display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(168px, 1fr));
-  gap: 16px;
-  margin-bottom: 24px;
+  grid-template-columns: repeat(auto-fill, minmax(152px, 1fr));
+  gap: 12px;
+  margin-bottom: 28px;
 }
 
-.kpi-card {
-  display: flex;
-  align-items: center;
-  gap: 14px;
-  padding: 18px 18px;
-  border-radius: var(--admin-radius-md);
-  background: var(--admin-card-bg);
+.kpi-tile {
+  padding: 16px 16px 14px;
+  border-radius: var(--admin-radius-md, 14px);
+  background: var(--admin-card-bg, #fff);
   box-shadow: var(--admin-shadow-card);
-  border: 1px solid rgba(168, 85, 247, 0.09);
+  border: 1px solid color-mix(in srgb, var(--el-color-primary, #c026d3) 10%, transparent);
   transition: transform 0.2s ease, box-shadow 0.2s ease;
 }
 
-.kpi-card:hover {
+.kpi-tile:hover {
   transform: translateY(-2px);
-  box-shadow: 0 12px 36px rgba(109, 40, 217, 0.12);
+  box-shadow: var(--admin-shadow-layout);
 }
 
-.kpi-icon-wrap {
-  width: 44px;
-  height: 44px;
-  border-radius: var(--admin-radius-sm);
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  background: linear-gradient(145deg, rgba(192, 38, 211, 0.15), rgba(236, 72, 153, 0.12));
-  color: #a21caf;
-}
-
-.kpi-body {
-  min-width: 0;
-}
-
-.kpi-label {
+.kpi-tile-label {
   font-size: 12px;
   color: var(--el-text-color-secondary);
-  margin-bottom: 4px;
+  margin-bottom: 6px;
+  line-height: 1.35;
 }
 
-.kpi-value {
-  font-size: 1.35rem;
-  font-weight: 700;
-  color: var(--admin-header-text);
+.kpi-tile-value {
+  font-size: 1.4rem;
+  font-weight: 650;
   font-variant-numeric: tabular-nums;
+  letter-spacing: -0.03em;
+  color: var(--admin-header-text);
 }
 
-.charts-grid {
-  display: grid;
-  grid-template-columns: repeat(2, 1fr);
+.kpi-tile-hint {
+  margin-top: 8px;
+  font-size: 11px;
+  color: var(--el-text-color-placeholder);
+  line-height: 1.35;
+}
+
+.charts {
+  display: flex;
+  flex-direction: column;
   gap: 20px;
-  margin-bottom: 24px;
+  margin-bottom: 28px;
 }
 
-@media (max-width: 1100px) {
-  .charts-grid {
+.charts-duo {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 20px;
+}
+
+@media (max-width: 1024px) {
+  .charts-duo {
     grid-template-columns: 1fr;
   }
 }
 
-.chart-panel {
-  border-radius: var(--admin-radius-lg);
+.panel {
+  border-radius: var(--admin-radius-lg, 20px);
   background: var(--admin-card-bg);
   box-shadow: var(--admin-shadow-card);
-  border: 1px solid rgba(168, 85, 247, 0.08);
+  border: 1px solid color-mix(in srgb, var(--el-color-primary, #c026d3) 8%, transparent);
+  overflow: hidden;
 }
 
-.chart-panel--wide {
-  grid-column: 1 / -1;
+.panel--hero {
+  /* subtle emphasis */
+  border-color: color-mix(in srgb, var(--admin-accent, #f472b6) 14%, transparent);
 }
 
-.chart-panel :deep(.el-card__header) {
+.panel :deep(.el-card__header) {
+  padding: 16px 18px 12px;
+  border-bottom: 1px solid color-mix(in srgb, var(--el-color-primary, #c026d3) 7%, transparent);
+}
+
+.panel-head {
   display: flex;
   flex-direction: column;
   align-items: flex-start;
   gap: 4px;
-  border-bottom: 1px solid rgba(168, 85, 247, 0.08);
+}
+
+.panel-head--row {
+  flex-direction: row;
+  align-items: center;
+  justify-content: space-between;
+  width: 100%;
 }
 
 .panel-title {
   font-weight: 600;
   font-size: 15px;
   color: var(--admin-header-text);
+  letter-spacing: 0.01em;
 }
 
-.panel-hint {
+.panel-sub {
   font-size: 12px;
   color: var(--el-text-color-secondary);
 }
 
-.chart-box {
+.chart {
   width: 100%;
+}
+
+.chart--line {
   height: 300px;
 }
 
-.chart-box--pie {
+.chart--pie,
+.chart--radar {
   height: 340px;
 }
 
-.bootstrap-panel {
-  border-radius: var(--admin-radius-lg);
-  background: var(--admin-card-bg);
-  box-shadow: var(--admin-shadow-card);
-  border: 1px solid rgba(168, 85, 247, 0.08);
+.chart--funnel {
+  height: 320px;
 }
 
-.bootstrap-head {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  width: 100%;
+.chart--graph {
+  height: 400px;
 }
 
-.desc {
+.panel--boot {
+  border-radius: var(--admin-radius-lg, 20px);
+}
+
+.boot-desc {
   color: var(--el-text-color-secondary);
   margin: 0 0 16px;
-  line-height: 1.6;
+  line-height: 1.65;
   font-size: 13px;
 }
 

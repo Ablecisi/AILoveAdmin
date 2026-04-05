@@ -1,12 +1,48 @@
 <script setup>
 import { ref, watch, reactive } from 'vue'
 import * as D from '@/api/adminData'
+import {
+  loadUserOptions,
+  loadArticleOptions,
+  formatUserOptionLabel,
+  resolveUserNickname,
+} from '@/api/adminLookups'
+import { parseTagLikeString, serializeTagsAsJson } from '@/utils/adminTagField'
+import AdminTagEditor from '@/components/AdminTagEditor.vue'
+import AdminImageField from '@/components/AdminImageField.vue'
+import AdminImageUrlListEditor from '@/components/AdminImageUrlListEditor.vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
+
+const userOptions = ref([])
+const articleOptions = ref([])
+
+async function ensureUserArticleLookups() {
+  try {
+    const tasks = []
+    if (!userOptions.value.length) tasks.push(loadUserOptions().then((r) => (userOptions.value = r)))
+    if (!articleOptions.value.length) tasks.push(loadArticleOptions().then((r) => (articleOptions.value = r)))
+    await Promise.all(tasks)
+  } catch (e) {
+    ElMessage.warning(e?.response?.data?.msg || e?.message || '下拉数据加载失败')
+  }
+}
 
 const mainTab = ref('types')
 
 function ok(data) {
   return data?.code === 1
+}
+
+function postFirstImageUrl(row) {
+  const u = row.imageUrls
+  if (!Array.isArray(u) || !u.length) return ''
+  return String(u[0] || '')
+}
+
+function fmtJsonArr(v) {
+  if (v == null) return ''
+  if (Array.isArray(v)) return JSON.stringify(v)
+  return String(v)
 }
 
 // ----- types -----
@@ -81,13 +117,13 @@ const pEditId = ref(null)
 const pForm = reactive({
   userId: null,
   content: '',
-  imageUrlsJson: '[]',
-  tagsJson: '[]',
   viewCount: 0,
   likeCount: 0,
   shareCount: 0,
   commentCount: 0,
 })
+const postImageUrls = ref([])
+const postTags = ref([])
 async function loadPosts() {
   pLoading.value = true
   try {
@@ -102,13 +138,14 @@ async function loadPosts() {
     pLoading.value = false
   }
 }
-function openPostCreate() {
+async function openPostCreate() {
+  await ensureUserArticleLookups()
   pEditId.value = null
+  postImageUrls.value = []
+  postTags.value = []
   Object.assign(pForm, {
     userId: null,
     content: '',
-    imageUrlsJson: '[]',
-    tagsJson: '[]',
     viewCount: 0,
     likeCount: 0,
     shareCount: 0,
@@ -117,6 +154,7 @@ function openPostCreate() {
   pDlg.value = true
 }
 async function openPostEdit(row) {
+  await ensureUserArticleLookups()
   pEditId.value = row.id
   try {
     const { data } = await D.posts.get(row.id)
@@ -127,8 +165,12 @@ async function openPostEdit(row) {
     const r = data.data
     pForm.userId = r.userId
     pForm.content = r.content ?? ''
-    pForm.imageUrlsJson = JSON.stringify(r.imageUrls ?? [], null, 2)
-    pForm.tagsJson = JSON.stringify(r.tags ?? [], null, 2)
+    postImageUrls.value = Array.isArray(r.imageUrls)
+      ? r.imageUrls.map((x) => String(x).trim()).filter(Boolean)
+      : []
+    postTags.value = Array.isArray(r.tags)
+      ? r.tags.map((x) => String(x).trim()).filter(Boolean)
+      : []
     pForm.viewCount = r.viewCount ?? 0
     pForm.likeCount = r.likeCount ?? 0
     pForm.shareCount = r.shareCount ?? 0
@@ -143,8 +185,8 @@ async function savePost() {
     const body = {
       userId: pForm.userId,
       content: pForm.content,
-      imageUrls: JSON.parse(pForm.imageUrlsJson || '[]'),
-      tags: JSON.parse(pForm.tagsJson || '[]'),
+      imageUrls: [...postImageUrls.value],
+      tags: [...postTags.value],
       viewCount: pForm.viewCount,
       likeCount: pForm.likeCount,
       shareCount: pForm.shareCount,
@@ -158,7 +200,7 @@ async function savePost() {
       loadPosts()
     } else ElMessage.error(data?.msg || '失败')
   } catch (e) {
-    ElMessage.error(e?.message?.includes('JSON') ? 'JSON 格式错误' : e?.response?.data?.msg || e?.message || '失败')
+    ElMessage.error(e?.response?.data?.msg || e?.message || '失败')
   }
 }
 async function delPost(row) {
@@ -188,11 +230,11 @@ const pfDlg = ref(false)
 const pfEditUserId = ref(null)
 const pfForm = reactive({
   userId: null,
-  interests: '',
   tonePreference: '',
   emotionStats: '',
   toDo: '',
 })
+const pfInterestTags = ref([])
 async function loadProfiles() {
   pfLoading.value = true
   try {
@@ -207,11 +249,12 @@ async function loadProfiles() {
     pfLoading.value = false
   }
 }
-function openPfCreate() {
+async function openPfCreate() {
+  await ensureUserArticleLookups()
   pfEditUserId.value = null
+  pfInterestTags.value = []
   Object.assign(pfForm, {
     userId: null,
-    interests: '',
     tonePreference: '',
     emotionStats: '',
     toDo: '',
@@ -219,6 +262,7 @@ function openPfCreate() {
   pfDlg.value = true
 }
 async function openPfEdit(row) {
+  await ensureUserArticleLookups()
   pfEditUserId.value = row.userId
   try {
     const { data } = await D.profiles.get(row.userId)
@@ -228,7 +272,7 @@ async function openPfEdit(row) {
     }
     const r = data.data
     pfForm.userId = r.userId
-    pfForm.interests = r.interests ?? ''
+    pfInterestTags.value = [...parseTagLikeString(r.interests)]
     pfForm.tonePreference = r.tonePreference ?? ''
     pfForm.emotionStats = r.emotionStats ?? ''
     pfForm.toDo = r.toDo ?? ''
@@ -238,7 +282,7 @@ async function openPfEdit(row) {
   }
 }
 async function savePf() {
-  const body = { ...pfForm }
+  const body = { ...pfForm, interests: serializeTagsAsJson(pfInterestTags.value) }
   try {
     const { data } =
       pfEditUserId.value == null ? await D.profiles.save(body) : await D.profiles.savePut(pfEditUserId.value, body)
@@ -354,13 +398,15 @@ async function loadRl() {
 const rlDlg = ref(false)
 const rlEditId = ref(null)
 const rlForm = reactive({ userId: null, articleId: null })
-function openRlCreate() {
+async function openRlCreate() {
+  await ensureUserArticleLookups()
   rlEditId.value = null
   rlForm.userId = null
   rlForm.articleId = null
   rlDlg.value = true
 }
 async function openRlEdit(row) {
+  await ensureUserArticleLookups()
   rlEditId.value = row.id
   try {
     const { data } = await D.rel.articleLikes.get(row.id)
@@ -410,12 +456,21 @@ async function delRl(row) {
 
 watch(
   mainTab,
-  (t) => {
+  async (t) => {
     if (t === 'types') loadTypes()
-    if (t === 'posts') loadPosts()
-    if (t === 'profiles') loadProfiles()
+    if (t === 'posts') {
+      await ensureUserArticleLookups()
+      loadPosts()
+    }
+    if (t === 'profiles') {
+      await ensureUserArticleLookups()
+      loadProfiles()
+    }
     if (t === 'ops') loadOps()
-    if (t === 'rellike') loadRl()
+    if (t === 'rellike') {
+      await ensureUserArticleLookups()
+      loadRl()
+    }
   },
   { immediate: true },
 )
@@ -432,12 +487,14 @@ watch(
     </template>
 
     <el-tabs v-model="mainTab">
-      <el-tab-pane label="类型 type" name="types">
+      <el-tab-pane label="类型" name="types">
         <el-button type="primary" class="mb" @click="openTypeCreate">新建</el-button>
         <el-button class="mb" @click="loadTypes">刷新</el-button>
         <el-table v-loading="typesLoading" :data="typesRows" stripe>
           <el-table-column prop="id" label="ID" width="80" />
           <el-table-column prop="name" label="名称" />
+          <el-table-column prop="createTime" label="创建时间" width="168" />
+          <el-table-column prop="updateTime" label="更新时间" width="168" />
           <el-table-column label="操作" width="160">
             <template #default="{ row }">
               <el-button type="primary" link size="small" @click="openTypeEdit(row)">编辑</el-button>
@@ -447,23 +504,42 @@ watch(
         </el-table>
       </el-tab-pane>
 
-      <el-tab-pane label="帖子 post" name="posts">
+      <el-tab-pane label="帖子" name="posts">
         <el-button type="primary" class="mb" @click="openPostCreate">新建</el-button>
         <el-button class="mb" @click="loadPosts">刷新</el-button>
         <el-table v-loading="pLoading" :data="pRows" stripe>
-          <el-table-column prop="id" label="ID" width="72" />
-          <el-table-column prop="userId" label="用户" width="80" />
-          <el-table-column prop="content" label="内容" min-width="220" show-overflow-tooltip />
-          <el-table-column label="操作" width="160">
+          <el-table-column prop="id" label="ID" width="72" fixed="left" />
+          <el-table-column label="首图" width="72" align="center">
+            <template #default="{ row }">
+              <AdminImageField :model-value="postFirstImageUrl(row)" :editable="false" :size="40" />
+            </template>
+          </el-table-column>
+          <el-table-column prop="userId" label="用户" width="100" show-overflow-tooltip>
+            <template #default="{ row }">{{ resolveUserNickname(row.userId, userOptions) }}</template>
+          </el-table-column>
+          <el-table-column prop="content" label="内容" min-width="200" show-overflow-tooltip />
+          <el-table-column label="图片列表" min-width="160" show-overflow-tooltip>
+            <template #default="{ row }">{{ fmtJsonArr(row.imageUrls) }}</template>
+          </el-table-column>
+          <el-table-column label="标签" min-width="120" show-overflow-tooltip>
+            <template #default="{ row }">{{ fmtJsonArr(row.tags) }}</template>
+          </el-table-column>
+          <el-table-column prop="viewCount" label="浏览量" width="88" />
+          <el-table-column prop="likeCount" label="点赞数" width="88" />
+          <el-table-column prop="shareCount" label="分享数" width="96" />
+          <el-table-column prop="commentCount" label="评论数" width="96" />
+          <el-table-column prop="createTime" label="创建时间" width="168" />
+          <el-table-column prop="updateTime" label="更新时间" width="168" />
+          <el-table-column label="操作" width="160" fixed="right">
             <template #default="{ row }">
               <el-button type="primary" link size="small" @click="openPostEdit(row)">编辑</el-button>
-              <el-button type="danger" link size="small" @click="delPost(row)">删</el-button>
+              <el-button type="danger" link size="small" @click="delPost(row)">删除</el-button>
             </template>
           </el-table-column>
         </el-table>
         <el-pagination
-          v-model:current-page="pPage"
-          v-model:page-size="pSize"
+          :current-page="pPage"
+          :page-size="pSize"
           class="pager"
           :total="pTotal"
           layout="total, prev, pager, next"
@@ -475,8 +551,15 @@ watch(
         <el-button type="primary" class="mb" @click="openPfCreate">新建</el-button>
         <el-button class="mb" @click="loadProfiles">刷新</el-button>
         <el-table v-loading="pfLoading" :data="pfRows" stripe>
-          <el-table-column prop="userId" label="userId" width="88" />
-          <el-table-column prop="tonePreference" label="语气偏好" show-overflow-tooltip />
+          <el-table-column prop="userId" label="用户" width="100" show-overflow-tooltip>
+            <template #default="{ row }">{{ resolveUserNickname(row.userId, userOptions) }}</template>
+          </el-table-column>
+          <el-table-column prop="interests" label="兴趣" min-width="140" show-overflow-tooltip />
+          <el-table-column prop="tonePreference" label="语气偏好" min-width="120" show-overflow-tooltip />
+          <el-table-column prop="emotionStats" label="情绪统计" min-width="160" show-overflow-tooltip />
+          <el-table-column prop="toDo" label="待办" min-width="140" show-overflow-tooltip />
+          <el-table-column prop="createTime" label="创建时间" width="168" />
+          <el-table-column prop="updateTime" label="更新时间" width="168" />
           <el-table-column label="操作" width="160">
             <template #default="{ row }">
               <el-button type="primary" link size="small" @click="openPfEdit(row)">编辑</el-button>
@@ -485,8 +568,8 @@ watch(
           </el-table-column>
         </el-table>
         <el-pagination
-          v-model:current-page="pfPage"
-          v-model:page-size="pfSize"
+          :current-page="pfPage"
+          :page-size="pfSize"
           class="pager"
           :total="pfTotal"
           layout="total, prev, pager, next"
@@ -499,8 +582,17 @@ watch(
         <el-button class="mb" @click="loadRl">刷新</el-button>
         <el-table v-loading="rlLoading" :data="rlRows" stripe>
           <el-table-column prop="id" label="ID" width="72" />
-          <el-table-column prop="userId" label="用户" width="88" />
-          <el-table-column prop="articleId" label="文章" width="88" />
+          <el-table-column prop="userId" label="用户" width="100" show-overflow-tooltip>
+            <template #default="{ row }">{{ resolveUserNickname(row.userId, userOptions) }}</template>
+          </el-table-column>
+          <el-table-column prop="articleId" label="文章ID" width="100" />
+          <el-table-column label="文章标题" min-width="140" show-overflow-tooltip>
+            <template #default="{ row }">
+              {{ articleOptions.find((a) => a.id === row.articleId)?.title?.trim() || '—' }}
+            </template>
+          </el-table-column>
+          <el-table-column prop="createTime" label="创建时间" width="168" />
+          <el-table-column prop="updateTime" label="更新时间" width="168" />
           <el-table-column label="操作" width="160">
             <template #default="{ row }">
               <el-button type="primary" link size="small" @click="openRlEdit(row)">编辑</el-button>
@@ -509,8 +601,8 @@ watch(
           </el-table-column>
         </el-table>
         <el-pagination
-          v-model:current-page="rlPage"
-          v-model:page-size="rlSize"
+          :current-page="rlPage"
+          :page-size="rlSize"
           class="pager"
           :total="rlTotal"
           layout="total, prev, pager, next"
@@ -524,6 +616,8 @@ watch(
         <el-table v-loading="opsLoading" :data="opsRows" stripe>
           <el-table-column prop="id" label="ID" width="72" />
           <el-table-column prop="username" label="登录名" />
+          <el-table-column prop="createTime" label="创建时间" width="168" />
+          <el-table-column prop="updateTime" label="更新时间" width="168" />
           <el-table-column label="操作" width="160">
             <template #default="{ row }">
               <el-button type="primary" link size="small" @click="openOpsEdit(row)">编辑</el-button>
@@ -544,16 +638,35 @@ watch(
 
     <el-dialog v-model="pDlg" title="帖子" width="640px">
       <el-form label-width="120px">
-        <el-form-item label="userId"><el-input-number v-model="pForm.userId" :min="1" /></el-form-item>
-        <el-form-item label="内容"><el-input v-model="pForm.content" type="textarea" :rows="6" /></el-form-item>
-        <el-form-item label="imageUrls JSON"><el-input v-model="pForm.imageUrlsJson" type="textarea" :rows="2" /></el-form-item>
-        <el-form-item label="tags JSON"><el-input v-model="pForm.tagsJson" type="textarea" :rows="2" /></el-form-item>
-        <el-form-item label="view/like/share/cmt">
-          <el-input-number v-model="pForm.viewCount" :min="0" />
-          <el-input-number v-model="pForm.likeCount" :min="0" class="ml8" />
-          <el-input-number v-model="pForm.shareCount" :min="0" class="ml8" />
-          <el-input-number v-model="pForm.commentCount" :min="0" class="ml8" />
+        <el-form-item label="用户">
+          <el-select v-model="pForm.userId" filterable placeholder="选择用户" style="width: 100%">
+            <el-option v-for="u in userOptions" :key="u.id" :label="formatUserOptionLabel(u)" :value="u.id" />
+          </el-select>
         </el-form-item>
+        <el-form-item label="内容"><el-input v-model="pForm.content" type="textarea" :rows="6" /></el-form-item>
+        <el-form-item label="图片列表">
+          <AdminImageUrlListEditor v-model="postImageUrls" />
+        </el-form-item>
+        <el-form-item label="标签">
+          <AdminTagEditor v-model="postTags" placeholder="标签，回车添加" />
+        </el-form-item>
+        <el-row>
+          <el-form-item label="阅览">
+            <el-input-number v-model="pForm.viewCount" :min="0" />
+          </el-form-item>
+          <el-form-item label="点赞">
+            <el-input-number v-model="pForm.likeCount" :min="0"/>
+          </el-form-item>
+        </el-row>
+        <el-row>
+          <el-form-item label="评论">
+            <el-input-number v-model="pForm.commentCount" :min="0"/>
+          </el-form-item>
+          <el-form-item label="分享">
+            <el-input-number v-model="pForm.shareCount" :min="0"/>
+          </el-form-item>
+        </el-row>
+
       </el-form>
       <template #footer>
         <el-button @click="pDlg = false">取消</el-button>
@@ -563,13 +676,23 @@ watch(
 
     <el-dialog v-model="pfDlg" title="用户画像" width="640px">
       <el-form label-width="110px">
-        <el-form-item label="userId" required>
-          <el-input-number v-model="pfForm.userId" :min="1" :disabled="pfEditUserId != null" />
+        <el-form-item label="用户" required>
+          <el-select
+            v-model="pfForm.userId"
+            filterable
+            :disabled="pfEditUserId != null"
+            placeholder="选择用户"
+            style="width: 100%"
+          >
+            <el-option v-for="u in userOptions" :key="u.id" :label="formatUserOptionLabel(u)" :value="u.id" />
+          </el-select>
         </el-form-item>
-        <el-form-item label="interests"><el-input v-model="pfForm.interests" type="textarea" :rows="3" /></el-form-item>
-        <el-form-item label="tonePreference"><el-input v-model="pfForm.tonePreference" /></el-form-item>
-        <el-form-item label="emotionStats"><el-input v-model="pfForm.emotionStats" type="textarea" :rows="2" /></el-form-item>
-        <el-form-item label="toDo"><el-input v-model="pfForm.toDo" type="textarea" :rows="2" /></el-form-item>
+        <el-form-item label="兴趣标签">
+          <AdminTagEditor v-model="pfInterestTags" placeholder="兴趣，回车添加" />
+        </el-form-item>
+        <el-form-item label="语气偏好"><el-input v-model="pfForm.tonePreference" /></el-form-item>
+        <el-form-item label="情绪统计"><el-input v-model="pfForm.emotionStats" type="textarea" :rows="2" /></el-form-item>
+        <el-form-item label="待办"><el-input v-model="pfForm.toDo" type="textarea" :rows="2" /></el-form-item>
       </el-form>
       <template #footer>
         <el-button @click="pfDlg = false">取消</el-button>
@@ -577,10 +700,23 @@ watch(
       </template>
     </el-dialog>
 
-    <el-dialog v-model="rlDlg" title="文章点赞" width="400px">
+    <el-dialog v-model="rlDlg" title="文章点赞" width="480px">
       <el-form label-width="90px">
-        <el-form-item label="userId"><el-input-number v-model="rlForm.userId" :min="1" /></el-form-item>
-        <el-form-item label="articleId"><el-input-number v-model="rlForm.articleId" :min="1" /></el-form-item>
+        <el-form-item label="用户">
+          <el-select v-model="rlForm.userId" filterable placeholder="选择用户" style="width: 100%">
+            <el-option v-for="u in userOptions" :key="u.id" :label="formatUserOptionLabel(u)" :value="u.id" />
+          </el-select>
+        </el-form-item>
+        <el-form-item label="文章">
+          <el-select v-model="rlForm.articleId" filterable placeholder="选择文章" style="width: 100%">
+            <el-option
+              v-for="a in articleOptions"
+              :key="a.id"
+              :label="(a.title || '').trim() || `#${a.id}`"
+              :value="a.id"
+            />
+          </el-select>
+        </el-form-item>
       </el-form>
       <template #footer>
         <el-button @click="rlDlg = false">取消</el-button>
@@ -622,5 +758,9 @@ watch(
 
 .pager {
   margin-top: 12px;
+}
+
+.mt8 {
+  margin-top: 8px;
 }
 </style>

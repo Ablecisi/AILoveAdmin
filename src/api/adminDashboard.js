@@ -9,7 +9,7 @@ function readTotal(res) {
 }
 
 /**
- * 并行拉取各模块分页接口的 total，用于驾驶舱 KPI（单条失败返回 null）
+ * 并行拉取各模块分页接口的 total（兼容旧用法）
  */
 export async function fetchDashboardTotals() {
   const specs = [
@@ -27,4 +27,13 @@ export async function fetchDashboardTotals() {
     out[key] = r.status === 'fulfilled' ? readTotal(r.value) : null
   })
   return out
+}
+
+/**
+ * 驾驶舱聚合：全量规模、14 日 DAU、兴趣关系图等
+ */
+export async function fetchDashboardOverview() {
+  const { data } = await http.get('/admin/api/v1/dashboard/overview')
+  if (data?.code === 1 && data.data) return data.data
+  throw new Error(data?.msg || '驾驶舱数据加载失败')
 }

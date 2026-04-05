@@ -4,6 +4,7 @@ import { useRoute, useRouter } from 'vue-router'
 import { storeToRefs } from 'pinia'
 import { useAuthStore } from '@/stores/auth'
 import { useThemeStore } from '@/stores/theme'
+import { resolveMediaUrl } from '@/utils/mediaUrl'
 import { Brush } from '@element-plus/icons-vue'
 
 const route = useRoute()
@@ -11,6 +12,8 @@ const router = useRouter()
 const auth = useAuthStore()
 const theme = useThemeStore()
 const { brandTitle, brandSubtitle, logoUrl, colors } = storeToRefs(theme)
+
+const logoSrc = computed(() => (logoUrl.value ? resolveMediaUrl(logoUrl.value) : ''))
 
 const activeMenu = computed(() => route.path)
 
@@ -45,7 +48,7 @@ function goAppearance() {
     <el-aside width="232px" class="aside">
       <div class="brand">
         <div class="brand-mark">
-          <img v-if="logoUrl" :src="logoUrl" alt="" class="brand-logo" />
+          <img v-if="logoSrc" :src="logoSrc" alt="" class="brand-logo" />
           <div v-else class="brand-fallback" aria-hidden="true">
             <span class="heart">💕</span>
           </div>
@@ -192,7 +195,7 @@ function goAppearance() {
 
 .menu :deep(.el-menu-item.is-active) {
   background: var(--admin-sidebar-active-bg) !important;
-  box-shadow: inset 0 0 0 1px rgba(244, 114, 182, 0.2);
+  box-shadow: inset 0 0 0 1px var(--admin-sidebar-active-bg);
 }
 
 .aside-foot {

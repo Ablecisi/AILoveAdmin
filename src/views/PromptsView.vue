@@ -113,13 +113,13 @@ onMounted(load)
       <el-table-column prop="id" label="ID" width="72" />
       <el-table-column prop="roleType" label="角色编码" width="140" show-overflow-tooltip />
       <el-table-column prop="name" label="名称" width="160" show-overflow-tooltip />
+      <el-table-column prop="template" label="模板内容" min-width="240" show-overflow-tooltip />
       <el-table-column prop="status" label="状态" width="88">
         <template #default="{ row }">
-          <el-tag :type="row.status === 1 ? 'success' : 'info'" size="small">
-            {{ row.status === 1 ? '启用' : '下线' }}
-          </el-tag>
+          <span>{{ row.status }}</span>
         </template>
       </el-table-column>
+      <el-table-column prop="createTime" label="创建时间" width="168" />
       <el-table-column prop="updateTime" label="更新时间" width="168" />
       <el-table-column label="操作" width="100" fixed="right">
         <template #default="{ row }">

@@ -3,6 +3,7 @@ import { ref, reactive, computed, watch } from 'vue'
 import { storeToRefs } from 'pinia'
 import { useThemeStore } from '@/stores/theme'
 import { ADMIN_MENU_DEFS } from '@/config/adminMenu'
+import { resolveMediaUrl } from '@/utils/mediaUrl'
 import { ElMessage } from 'element-plus'
 
 const theme = useThemeStore()
@@ -168,7 +169,7 @@ watch(
             <el-form-item label="Logo">
               <div class="logo-row">
                 <div v-if="logoUrl" class="logo-preview-wrap">
-                  <img :src="logoUrl" alt="logo" class="logo-preview" />
+                  <img :src="resolveMediaUrl(logoUrl)" alt="logo" class="logo-preview" />
                 </div>
                 <div v-else class="logo-placeholder">未设置</div>
                 <input ref="logoInput" type="file" accept="image/*" class="hidden-file" @change="onLogoFile" />

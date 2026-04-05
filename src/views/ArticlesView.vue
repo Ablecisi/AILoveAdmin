@@ -7,7 +7,16 @@ import {
   updateAdminArticle,
   deleteAdminArticle,
 } from '@/api/adminArticles'
+import { loadUserOptions, formatUserOptionLabel, resolveUserNickname } from '@/api/adminLookups'
+import AdminTagEditor from '@/components/AdminTagEditor.vue'
+import AdminImageField from '@/components/AdminImageField.vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
+
+function fmtTags(row) {
+  if (row.tags == null) return ''
+  if (Array.isArray(row.tags)) return JSON.stringify(row.tags)
+  return String(row.tags)
+}
 
 const loading = ref(false)
 const tableData = ref([])
@@ -15,6 +24,20 @@ const total = ref(0)
 const page = ref(1)
 const size = ref(10)
 const keyword = ref('')
+
+const userOptions = ref([])
+
+function userLabel(id) {
+  return resolveUserNickname(id, userOptions.value)
+}
+
+async function ensureUserOptions() {
+  try {
+    userOptions.value = await loadUserOptions()
+  } catch (e) {
+    ElMessage.warning(e?.response?.data?.msg || e?.message || '用户列表加载失败')
+  }
+}
 
 const dialogVisible = ref(false)
 const saving = ref(false)
@@ -29,12 +52,15 @@ const form = reactive({
   viewCount: 0,
   likeCount: 0,
   commentCount: 0,
-  tagsJson: '[]',
 })
 
-function openCreate() {
+const tagList = ref([])
+
+async function openCreate() {
+  await ensureUserOptions()
   isEdit.value = false
   editId.value = null
+  tagList.value = []
   Object.assign(form, {
     title: '',
     description: '',
@@ -44,18 +70,23 @@ function openCreate() {
     viewCount: 0,
     likeCount: 0,
     commentCount: 0,
-    tagsJson: '[]',
   })
   dialogVisible.value = true
 }
 
 async function openEdit(row) {
+  await ensureUserOptions()
   isEdit.value = true
   editId.value = row.id
   try {
     const { data } = await fetchAdminArticle(row.id)
     if (data?.code === 1 && data.data) {
       const a = data.data
+      const rawTags = a.tags
+      const tags = Array.isArray(rawTags)
+        ? rawTags.map((x) => String(x).trim()).filter(Boolean)
+        : []
+      tagList.value = [...tags]
       Object.assign(form, {
         title: a.title ?? '',
         description: a.description ?? '',
@@ -65,7 +96,6 @@ async function openEdit(row) {
         viewCount: a.viewCount ?? 0,
         likeCount: a.likeCount ?? 0,
         commentCount: a.commentCount ?? 0,
-        tagsJson: JSON.stringify(a.tags ?? [], null, 2),
       })
       dialogVisible.value = true
     } else {
@@ -113,15 +143,6 @@ function onSizeChange(s) {
   void load()
 }
 
-function parseTags() {
-  try {
-    const v = JSON.parse(form.tagsJson || '[]')
-    return Array.isArray(v) ? v : []
-  } catch {
-    throw new Error('标签须为 JSON 数组，如 ["a","b"]')
-  }
-}
-
 async function submit() {
   if (!form.title?.trim()) {
     ElMessage.warning('请填写标题')
@@ -132,16 +153,10 @@ async function submit() {
     return
   }
   if (form.userId == null || Number.isNaN(Number(form.userId))) {
-    ElMessage.warning('请填写作者 userId')
+    ElMessage.warning('请选择作者')
     return
   }
-  let tags
-  try {
-    tags = parseTags()
-  } catch (err) {
-    ElMessage.warning(err.message)
-    return
-  }
+  const tags = [...tagList.value]
   saving.value = true
   try {
     const body = {
@@ -194,7 +209,10 @@ async function onDelete(row) {
   }
 }
 
-onMounted(load)
+onMounted(() => {
+  void ensureUserOptions()
+  load()
+})
 </script>
 
 <template>
@@ -217,14 +235,26 @@ onMounted(load)
       </div>
     </template>
     <el-table v-loading="loading" :data="tableData" stripe style="width: 100%">
-      <el-table-column prop="id" label="ID" width="80" />
-      <el-table-column prop="title" label="标题" min-width="200" show-overflow-tooltip />
-      <el-table-column prop="description" label="摘要" min-width="180" show-overflow-tooltip />
-      <el-table-column prop="userId" label="作者ID" width="100" />
-      <el-table-column prop="viewCount" label="浏览" width="80" />
-      <el-table-column prop="likeCount" label="点赞" width="80" />
-      <el-table-column prop="commentCount" label="评论" width="80" />
-      <el-table-column prop="updateTime" label="更新时间" width="170" />
+      <el-table-column prop="id" label="ID" width="72" fixed="left" />
+      <el-table-column label="封面" width="88" align="center">
+        <template #default="{ row }">
+          <AdminImageField :model-value="row.coverImageUrl" :editable="false" :size="40" />
+        </template>
+      </el-table-column>
+      <el-table-column prop="title" label="标题" min-width="160" show-overflow-tooltip />
+      <el-table-column prop="description" label="摘要" min-width="140" show-overflow-tooltip />
+      <el-table-column prop="content" label="正文" min-width="200" show-overflow-tooltip />
+      <el-table-column prop="userId" label="作者" width="120" show-overflow-tooltip>
+        <template #default="{ row }">{{ userLabel(row.userId) }}</template>
+      </el-table-column>
+      <el-table-column prop="viewCount" label="浏览量" width="88" />
+      <el-table-column prop="likeCount" label="点赞数" width="88" />
+      <el-table-column prop="commentCount" label="评论数" width="96" />
+      <el-table-column label="标签" min-width="120" show-overflow-tooltip>
+        <template #default="{ row }">{{ fmtTags(row) }}</template>
+      </el-table-column>
+      <el-table-column prop="createTime" label="创建时间" width="168" />
+      <el-table-column prop="updateTime" label="更新时间" width="168" />
       <el-table-column label="操作" width="140" fixed="right">
         <template #default="{ row }">
           <el-button type="primary" link size="small" @click="openEdit(row)">编辑</el-button>
@@ -252,19 +282,24 @@ onMounted(load)
         <el-form-item label="摘要">
           <el-input v-model="form.description" type="textarea" :rows="2" />
         </el-form-item>
-        <el-form-item label="作者 userId" required>
-          <el-input-number v-model="form.userId" :min="1" controls-position="right" style="width: 100%" />
+        <el-form-item label="作者" required>
+          <el-select v-model="form.userId" filterable placeholder="选择用户" style="width: 100%">
+            <el-option v-for="u in userOptions" :key="u.id" :label="formatUserOptionLabel(u)" :value="u.id" />
+          </el-select>
         </el-form-item>
-        <el-form-item label="封面 URL">
-          <el-input v-model="form.coverImageUrl" />
+        <el-form-item label="封面">
+          <AdminImageField v-model="form.coverImageUrl" :editable="true" :size="96" />
+          <el-input v-model="form.coverImageUrl" placeholder="或直接填写 cover_image_url" clearable class="mt8" />
         </el-form-item>
         <el-form-item label="浏览/赞/评">
           <el-input-number v-model="form.viewCount" :min="0" />
           <el-input-number v-model="form.likeCount" :min="0" class="ml" />
           <el-input-number v-model="form.commentCount" :min="0" class="ml" />
         </el-form-item>
-        <el-form-item label="标签 JSON">
-          <el-input v-model="form.tagsJson" type="textarea" :rows="3" placeholder='["标签1","标签2"]' />
+
+        <el-form-item label="标签">
+          <AdminTagEditor v-model="tagList" placeholder="输入标签，回车或点击添加" />
+          <span class="hint">保存时仍以 JSON 数组提交给接口</span>
         </el-form-item>
         <el-form-item label="正文" required>
           <el-input v-model="form.content" type="textarea" :rows="12" />
@@ -302,5 +337,16 @@ onMounted(load)
 
 .ml {
   margin-left: 12px;
+}
+
+.hint {
+  display: block;
+  font-size: 12px;
+  color: var(--el-text-color-secondary);
+  margin-top: 6px;
+}
+
+.mt8 {
+  margin-top: 8px;
 }
 </style>

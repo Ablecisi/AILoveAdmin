@@ -7,6 +7,15 @@ import {
   updateAiCharacter,
   deleteAiCharacter,
 } from '@/api/adminCharacters'
+import {
+  loadTypeOptions,
+  loadUserOptions,
+  formatUserOptionLabel,
+  resolveUserNickname,
+} from '@/api/adminLookups'
+import { parseTagLikeString, serializeTagsAsJson } from '@/utils/adminTagField'
+import AdminTagEditor from '@/components/AdminTagEditor.vue'
+import AdminImageField from '@/components/AdminImageField.vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
 
 const loading = ref(false)
@@ -15,8 +24,26 @@ const total = ref(0)
 const page = ref(1)
 const size = ref(10)
 const keyword = ref('')
-const typeId = ref('')
+const filterTypeId = ref(null)
 const status = ref('')
+
+const typeOptions = ref([])
+const userOptions = ref([])
+
+function userLabel(id) {
+  if (id == null) return '系统'
+  return resolveUserNickname(id, userOptions.value)
+}
+
+async function ensureLookups() {
+  try {
+    const [types, users] = await Promise.all([loadTypeOptions(), loadUserOptions()])
+    typeOptions.value = types
+    userOptions.value = users
+  } catch (e) {
+    ElMessage.warning(e?.response?.data?.msg || e?.message || '下拉数据加载失败')
+  }
+}
 
 const dialogVisible = ref(false)
 const saving = ref(false)
@@ -29,17 +56,21 @@ const form = reactive({
   gender: 2,
   age: null,
   imageUrl: '',
-  traits: '',
   personaDesc: '',
-  interests: '',
   backstory: '',
   online: 0,
   status: 1,
 })
 
-function openCreate() {
+const traitTags = ref([])
+const interestTags = ref([])
+
+async function openCreate() {
+  await ensureLookups()
   isEdit.value = false
   editId.value = null
+  traitTags.value = []
+  interestTags.value = []
   Object.assign(form, {
     userId: null,
     name: '',
@@ -47,9 +78,7 @@ function openCreate() {
     gender: 2,
     age: null,
     imageUrl: '',
-    traits: '',
     personaDesc: '',
-    interests: '',
     backstory: '',
     online: 0,
     status: 1,
@@ -58,12 +87,15 @@ function openCreate() {
 }
 
 async function openEdit(row) {
+  await ensureLookups()
   isEdit.value = true
   editId.value = row.id
   try {
     const { data } = await fetchAiCharacter(row.id)
     if (data?.code === 1 && data.data) {
       const r = data.data
+      traitTags.value = [...parseTagLikeString(r.traits)]
+      interestTags.value = [...parseTagLikeString(r.interests)]
       Object.assign(form, {
         userId: r.userId ?? null,
         name: r.name ?? '',
@@ -71,9 +103,7 @@ async function openEdit(row) {
         gender: r.gender ?? 2,
         age: r.age ?? null,
         imageUrl: r.imageUrl ?? '',
-        traits: r.traits ?? '',
         personaDesc: r.personaDesc ?? '',
-        interests: r.interests ?? '',
         backstory: r.backstory ?? '',
         online: r.online ?? 0,
         status: r.status ?? 1,
@@ -95,9 +125,8 @@ async function load() {
       size: size.value,
       keyword: keyword.value.trim() || undefined,
     }
-    const tid = typeId.value === '' ? undefined : Number(typeId.value)
+    if (filterTypeId.value != null) params.typeId = filterTypeId.value
     const st = status.value === '' ? undefined : Number(status.value)
-    if (tid != null && !Number.isNaN(tid)) params.typeId = tid
     if (st != null && !Number.isNaN(st)) params.status = st
 
     const { data } = await fetchAiCharacters(params)
@@ -137,7 +166,12 @@ async function submit() {
   }
   saving.value = true
   try {
-    const body = { ...form, name: form.name.trim() }
+    const body = {
+      ...form,
+      name: form.name.trim(),
+      traits: serializeTagsAsJson(traitTags.value),
+      interests: serializeTagsAsJson(interestTags.value),
+    }
     let data
     if (isEdit.value) {
       ;({ data } = await updateAiCharacter(editId.value, body))
@@ -177,7 +211,10 @@ async function onDelete(row) {
   }
 }
 
-onMounted(load)
+onMounted(() => {
+  void ensureLookups()
+  load()
+})
 </script>
 
 <template>
@@ -193,13 +230,16 @@ onMounted(load)
             style="width: 160px; margin-right: 8px"
             @keyup.enter="onSearch"
           />
-          <el-input
-            v-model="typeId"
-            placeholder="类型 ID"
+          <el-select
+            v-model="filterTypeId"
+            placeholder="类型"
             clearable
-            style="width: 100px; margin-right: 8px"
-            @keyup.enter="onSearch"
-          />
+            filterable
+            style="width: 160px; margin-right: 8px"
+            @change="onSearch"
+          >
+            <el-option v-for="t in typeOptions" :key="t.id" :label="t.name" :value="t.id" />
+          </el-select>
           <el-select v-model="status" placeholder="状态" clearable style="width: 100px; margin-right: 8px">
             <el-option label="启用" :value="1" />
             <el-option label="下线" :value="0" />
@@ -211,21 +251,36 @@ onMounted(load)
       </div>
     </template>
     <el-table v-loading="loading" :data="tableData" stripe style="width: 100%">
-      <el-table-column prop="id" label="ID" width="72" />
-      <el-table-column prop="userId" label="用户" width="88" />
-      <el-table-column prop="name" label="名称"  show-overflow-tooltip />
-      <el-table-column prop="typeName" label="类型" width="100" show-overflow-tooltip />
-      <el-table-column prop="online" label="在线" width="72">
+      <el-table-column prop="id" label="ID" width="72" fixed="left" />
+      <el-table-column prop="userId" label="归属用户" width="120" show-overflow-tooltip>
+        <template #default="{ row }">{{ userLabel(row.userId) }}</template>
+      </el-table-column>
+      <el-table-column prop="name" label="名称" min-width="100" show-overflow-tooltip />
+      <el-table-column prop="typeId" label="类型ID" width="80" />
+      <el-table-column prop="typeName" label="类型名称" width="100" show-overflow-tooltip />
+      <el-table-column label="头像" width="72" align="center">
         <template #default="{ row }">
-          <el-tag :type="row.online === 1 ? 'success' : 'info'" size="small">{{ row.online === 1 ? '是' : '否' }}</el-tag>
+          <AdminImageField :model-value="row.imageUrl" :editable="false" :size="40" />
         </template>
       </el-table-column>
-      <el-table-column prop="status" label="启用" width="72">
+      <el-table-column prop="gender" label="性别" width="72" />
+      <el-table-column prop="age" label="年龄" width="64" />
+      <el-table-column prop="traits" label="特点" min-width="100" show-overflow-tooltip />
+      <el-table-column prop="personaDesc" label="性格描述" min-width="120" show-overflow-tooltip />
+      <el-table-column prop="interests" label="兴趣" min-width="100" show-overflow-tooltip />
+      <el-table-column prop="backstory" label="背景故事" min-width="120" show-overflow-tooltip />
+      <el-table-column prop="online" label="在线" width="80">
         <template #default="{ row }">
-          <el-tag :type="row.status === 1 ? 'success' : 'danger'" size="small">{{ row.status === 1 ? '是' : '否' }}</el-tag>
+          <el-tag :type="row.online === 1 ? 'success' : 'info'" size="small">{{ row.online === 1 ? '1' : '0' }}</el-tag>
         </template>
       </el-table-column>
-      <el-table-column prop="updateTime" label="更新" width="168" />
+      <el-table-column prop="status" label="状态" width="80">
+        <template #default="{ row }">
+          <el-tag :type="row.status === 1 ? 'success' : 'danger'" size="small">{{ row.status === 1 ? '1' : '0' }}</el-tag>
+        </template>
+      </el-table-column>
+      <el-table-column prop="createTime" label="创建时间" width="168" />
+      <el-table-column prop="updateTime" label="更新时间" width="168" />
       <el-table-column label="操作" width="140" fixed="right">
         <template #default="{ row }">
           <el-button type="primary" link size="small" @click="openEdit(row)">编辑</el-button>
@@ -235,8 +290,8 @@ onMounted(load)
     </el-table>
     <div class="pager">
       <el-pagination
-        v-model:current-page="page"
-        v-model:page-size="size"
+        :current-page="page"
+        :page-size="size"
         :total="total"
         :page-sizes="[10, 20, 50]"
         layout="total, sizes, prev, pager, next"
@@ -247,22 +302,25 @@ onMounted(load)
 
     <el-dialog v-model="dialogVisible" :title="isEdit ? '编辑角色' : '新建角色'" width="640px" destroy-on-close>
       <el-form label-width="110px">
-        <el-form-item label="归属用户 ID">
-          <el-input-number
+        <el-form-item label="归属用户">
+          <el-select
             v-model="form.userId"
             clearable
-            :value-on-clear="null"
-            :controls="false"
+            filterable
             placeholder="留空表示系统角色"
             style="width: 100%"
-          />
-          <span class="hint">与库表一致：可为空表示系统角色</span>
+          >
+            <el-option v-for="u in userOptions" :key="u.id" :label="formatUserOptionLabel(u)" :value="u.id" />
+          </el-select>
+          <span class="hint">清空表示系统角色</span>
         </el-form-item>
         <el-form-item label="名称" required>
           <el-input v-model="form.name" />
         </el-form-item>
-        <el-form-item label="类型 ID">
-          <el-input-number v-model="form.typeId" :min="1" controls-position="right" style="width: 100%" />
+        <el-form-item label="类型">
+          <el-select v-model="form.typeId" clearable filterable placeholder="请选择类型" style="width: 100%">
+            <el-option v-for="t in typeOptions" :key="t.id" :label="t.name" :value="t.id" />
+          </el-select>
         </el-form-item>
         <el-form-item label="性别">
           <el-radio-group v-model="form.gender">
@@ -274,17 +332,18 @@ onMounted(load)
         <el-form-item label="年龄">
           <el-input-number v-model="form.age" :min="0" :max="200" controls-position="right" />
         </el-form-item>
-        <el-form-item label="头像 URL">
-          <el-input v-model="form.imageUrl" />
+        <el-form-item label="头像">
+          <AdminImageField v-model="form.imageUrl" :editable="true" :size="96" />
+          <el-input v-model="form.imageUrl" placeholder="或填写 image_url" clearable class="mt8" />
         </el-form-item>
         <el-form-item label="特点">
-          <el-input v-model="form.traits" />
+          <AdminTagEditor v-model="traitTags" placeholder="特点标签，回车添加" />
         </el-form-item>
         <el-form-item label="性格描述">
           <el-input v-model="form.personaDesc" type="textarea" :rows="3" />
         </el-form-item>
         <el-form-item label="兴趣">
-          <el-input v-model="form.interests" />
+          <AdminTagEditor v-model="interestTags" placeholder="兴趣标签，回车添加" />
         </el-form-item>
         <el-form-item label="背景">
           <el-input v-model="form.backstory" type="textarea" :rows="3" />
@@ -331,5 +390,9 @@ onMounted(load)
   font-size: 12px;
   color: var(--el-text-color-secondary);
   margin-top: 4px;
+}
+
+.mt8 {
+  margin-top: 8px;
 }
 </style>

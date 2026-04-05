@@ -7,6 +7,7 @@ import {
   updateAdminUser,
   deleteAdminUser,
 } from '@/api/adminUsers'
+import AdminImageField from '@/components/AdminImageField.vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
 
 const loading = ref(false)
@@ -192,13 +193,19 @@ onMounted(load)
       </div>
     </template>
     <el-table v-loading="loading" :data="tableData" stripe style="width: 100%">
-      <el-table-column prop="id" label="ID" width="80" />
-      <el-table-column prop="username" label="账号" width="140" />
-      <el-table-column prop="name" label="昵称" width="140" />
-      <el-table-column prop="description" label="简介" min-width="200" show-overflow-tooltip />
-      <el-table-column prop="followingCount" label="关注" width="80" />
-      <el-table-column prop="followersCount" label="粉丝" width="80" />
-      <el-table-column prop="createTime" label="注册时间" width="170" />
+      <el-table-column prop="id" label="ID" width="72" fixed="left" />
+      <el-table-column label="头像" width="72" align="center">
+        <template #default="{ row }">
+          <AdminImageField :model-value="row.avatarUrl" :editable="false" :size="40" />
+        </template>
+      </el-table-column>
+      <el-table-column prop="username" label="账号" width="120" show-overflow-tooltip />
+      <el-table-column prop="name" label="昵称" width="120" show-overflow-tooltip />
+      <el-table-column prop="description" label="简介" min-width="160" show-overflow-tooltip />
+      <el-table-column prop="followingCount" label="关注数" width="100" />
+      <el-table-column prop="followersCount" label="粉丝数" width="100" />
+      <el-table-column prop="createTime" label="创建时间" width="168" />
+      <el-table-column prop="updateTime" label="更新时间" width="168" />
       <el-table-column label="操作" width="160" fixed="right">
         <template #default="{ row }">
           <el-button type="primary" link size="small" @click="openEdit(row)">编辑</el-button>
@@ -232,8 +239,9 @@ onMounted(load)
         <el-form-item label="简介">
           <el-input v-model="form.description" type="textarea" :rows="2" />
         </el-form-item>
-        <el-form-item label="头像 URL">
-          <el-input v-model="form.avatarUrl" />
+        <el-form-item label="头像">
+          <AdminImageField v-model="form.avatarUrl" :editable="true" :size="96" />
+          <el-input v-model="form.avatarUrl" placeholder="或填写 avatar_url" clearable class="mt8" />
         </el-form-item>
         <el-form-item label="关注数">
           <el-input-number v-model="form.followingCount" :min="0" />
@@ -270,5 +278,9 @@ onMounted(load)
   margin-top: 16px;
   display: flex;
   justify-content: flex-end;
+}
+
+.mt8 {
+  margin-top: 8px;
 }
 </style>

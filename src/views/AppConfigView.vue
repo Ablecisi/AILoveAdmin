@@ -1,15 +1,57 @@
 <script setup>
 import { ref, onMounted } from 'vue'
 import { fetchAdminAppConfig, putAppConfigValue } from '@/api/adminAppConfig'
+import AdminTagEditor from '@/components/AdminTagEditor.vue'
 import { ElMessage } from 'element-plus'
 
 const loading = ref(false)
 const savingKey = ref('')
 const rows = ref([])
 
+function inferConfigEditorKind(valueStr) {
+  const s = String(valueStr ?? '').trim()
+  if (s === 'true' || s === 'false') return 'bool'
+  if (/^-?\d+$/.test(s)) return 'int'
+  if (s.startsWith('[')) {
+    try {
+      const j = JSON.parse(s)
+      if (Array.isArray(j)) return 'tags'
+    } catch {
+      /* ignore */
+    }
+  }
+  return 'text'
+}
+
 function mapToRows(obj) {
   if (!obj || typeof obj !== 'object') return []
-  return Object.keys(obj).map((k) => ({ key: k, value: obj[k] ?? '' }))
+  return Object.keys(obj).map((k) => {
+    const value = String(obj[k] ?? '')
+    const kind = inferConfigEditorKind(value)
+    const row = { key: k, value, kind }
+    if (kind === 'tags') {
+      try {
+        row.tags = JSON.parse(value).map((x) => String(x))
+      } catch {
+        row.tags = []
+      }
+    }
+    return row
+  })
+}
+
+function onTagsUpdate(row, tags) {
+  row.tags = tags
+  row.value = JSON.stringify(tags)
+}
+
+function onBoolUpdate(row, v) {
+  row.value = v ? 'true' : 'false'
+}
+
+function onIntUpdate(row, v) {
+  if (v == null || Number.isNaN(Number(v))) row.value = '0'
+  else row.value = String(Math.trunc(Number(v)))
 }
 
 async function load() {
@@ -61,13 +103,32 @@ onMounted(load)
         type="info"
         :closable="false"
         class="mb"
-        title="修改后移动端通过 GET /api/app/bootstrap 拉取；键名与库表 config_key 一致。"
+        title="修改后移动端通过 GET /api/app/bootstrap 拉取。布尔值与整数使用开关/数字框；JSON 数组用标签编辑，保存仍为 JSON 字符串。"
       />
       <el-table v-loading="loading" :data="rows" stripe style="width: 100%">
-        <el-table-column prop="key" label="键" width="240" />
+        <el-table-column prop="key" label="键" width="260" show-overflow-tooltip />
         <el-table-column label="值">
           <template #default="{ row }">
-            <el-input v-model="row.value" type="textarea" :rows="2" />
+            <el-switch
+              v-if="row.kind === 'bool'"
+              :model-value="row.value === 'true'"
+              @update:model-value="(v) => onBoolUpdate(row, v)"
+            />
+            <el-input-number
+              v-else-if="row.kind === 'int'"
+              :model-value="parseInt(row.value, 10)"
+              :step="1"
+              controls-position="right"
+              style="width: 160px"
+              @change="(v) => onIntUpdate(row, v)"
+            />
+            <AdminTagEditor
+              v-else-if="row.kind === 'tags'"
+              :model-value="row.tags"
+              placeholder="配置项，回车添加"
+              @update:model-value="(v) => onTagsUpdate(row, v)"
+            />
+            <el-input v-else v-model="row.value" type="textarea" :rows="2" />
           </template>
         </el-table-column>
         <el-table-column label="操作" width="120" fixed="right">

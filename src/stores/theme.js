@@ -17,7 +17,7 @@ function defaultColors() {
     headerText: '#1e1b2e',
     mainBg: 'linear-gradient(165deg, #faf6ff 0%, #f3ecfb 42%, #efe8f7 100%)',
     cardBg: 'rgba(255, 255, 255, 0.92)',
-    primary: '#c026d3',
+    primary: '#fbd4ff',
   }
 }
 
@@ -205,17 +205,24 @@ export const useThemeStore = defineStore('theme', {
       this.applyDocumentVars()
     },
 
-    setLogoFromFile(file) {
-      return new Promise((resolve, reject) => {
-        if (!file || !file.type?.startsWith('image/')) {
-          reject(new Error('请选择图片文件'))
-          return
-        }
-        if (file.size > 400 * 1024) {
-          reject(new Error('图片建议小于 400KB，请压缩或使用图片地址'))
-          return
-        }
-        const reader = new FileReader()
+    async setLogoFromFile(file) {
+      if (!file || !file.type?.startsWith('image/')) {
+        throw new Error('请选择图片文件')
+      }
+      try {
+        const { uploadAdminImage } = await import('@/api/adminUpload')
+        this.logoUrl = await uploadAdminImage(file)
+        this.persist()
+        this.applyDocumentVars()
+        return
+      } catch {
+        /* 接口不可用时退回本地 data URL（仅小图） */
+      }
+      if (file.size > 2 * 1024 * 1024) {
+        throw new Error('上传失败且图片较大，请配置后端上传或使用图片地址')
+      }
+      const reader = new FileReader()
+      await new Promise((resolve, reject) => {
         reader.onload = () => {
           this.logoUrl = reader.result
           this.persist()
