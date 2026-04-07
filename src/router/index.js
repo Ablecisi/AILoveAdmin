@@ -76,6 +76,12 @@ const routes = [
         meta: { title: 'Prompt 模板' },
       },
       {
+        path: 'ai-service-config',
+        name: 'ai-service-config',
+        component: () => import('@/views/AiServiceConfigView.vue'),
+        meta: { title: 'AI 服务配置' },
+      },
+      {
         path: 'data-maintenance',
         name: 'data-maintenance',
         component: () => import('@/views/DataMaintenanceView.vue'),

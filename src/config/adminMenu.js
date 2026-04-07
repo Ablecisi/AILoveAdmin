@@ -12,6 +12,7 @@ export const ADMIN_MENU_DEFS = [
   { name: 'comments', path: '/comments', icon: 'ChatDotRound', defaultTitle: '评论管理' },
   { name: 'dialogs', path: '/dialogs', icon: 'ChatLineRound', defaultTitle: '会话与消息' },
   { name: 'prompts', path: '/prompts', icon: 'Memo', defaultTitle: 'Prompt 模板' },
+  { name: 'ai-service-config', path: '/ai-service-config', icon: 'Cpu', defaultTitle: 'AI 服务配置' },
   { name: 'data-maintenance', path: '/data-maintenance', icon: 'Files', defaultTitle: '数据维护' },
   { name: 'appearance', path: '/appearance', icon: 'Brush', defaultTitle: '外观与菜单' },
   { name: 'app-config', path: '/app-config', icon: 'Setting', defaultTitle: 'App 配置' },
